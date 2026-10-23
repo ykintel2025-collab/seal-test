@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1c1c1e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Seal Facturen</title>
+<style>
+:root{--bg:#f5f3ee;--card:#fff;--ink:#1c1c1e;--mut:#6b6b70;--line:#e3e0d8;--gold:#b8923a;--gold-d:#8f6f26;--ok:#2e7d4f;--bad:#b3261e}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{padding-bottom:env(safe-area-inset-bottom)}
+header.top{position:sticky;top:0;z-index:5;background:var(--ink);color:#fff;display:flex;align-items:center;gap:10px;padding:12px 14px;padding-top:calc(12px + env(safe-area-inset-top))}
+header.top h1{font-size:17px;margin:0;flex:1;font-weight:600}
+header.top button{background:none;border:0;color:#fff;font-size:22px;padding:2px 8px;cursor:pointer}
+main{max-width:640px;margin:0 auto;padding:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 10px;font-weight:600}
+label{display:block;font-size:13px;color:var(--mut);margin:10px 0 4px}
+input,select,textarea{width:100%;font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--gold);border-color:var(--gold)}
+textarea{min-height:64px;resize:vertical}
+.row{display:flex;gap:8px}.row>*{flex:1;min-width:0}
+.btn{display:block;width:100%;padding:14px;border:0;border-radius:12px;font:inherit;font-weight:600;background:var(--ink);color:#fff;cursor:pointer;text-align:center}
+.btn.gold{background:var(--gold)}.btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}.btn.bad{background:#fff;color:var(--bad);border:1px solid var(--line)}
+.btn.sm{padding:9px 12px;font-size:14px;width:auto;display:inline-block}
+.btn:disabled{opacity:.5}
+.brands{display:grid;gap:10px}
+.brand{display:flex;align-items:center;gap:12px;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;font:inherit;cursor:pointer;width:100%}
+.brand img{height:40px;max-width:90px;object-fit:contain}
+.brand .ph{width:40px;height:40px;border-radius:10px;background:var(--ink);color:var(--gold);display:grid;place-items:center;font-weight:700}
+.brand b{display:block}.brand small{color:var(--mut)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:#fff;border-radius:99px;padding:8px 12px;font:inherit;font-size:14px;cursor:pointer}
+.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.line{border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px;background:#fcfbf8}
+.line .row{margin-top:6px}
+.line .x{float:right;background:none;border:0;color:var(--bad);font-size:14px;cursor:pointer}
+.tot{display:flex;justify-content:space-between;padding:3px 0}.tot.big{font-weight:700;font-size:18px;border-top:1px solid var(--line);margin-top:6px;padding-top:8px}
+.inv{display:flex;gap:10px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.inv:last-child{border:0}.inv .m{flex:1;min-width:0}.inv .m b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inv .m small{color:var(--mut)}.inv .a{text-align:right;font-weight:600}
+.tag{font-size:11px;padding:2px 8px;border-radius:99px;background:#eee;color:var(--mut)}.tag.ok{background:#e3f3e9;color:var(--ok)}
+.hint{font-size:13px;color:var(--mut)}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 16px;border-radius:12px;z-index:20;max-width:90%;font-size:14px}
+.stack>*+*{margin-top:8px}
+.logo-prev{height:48px;max-width:160px;object-fit:contain;display:block;margin:6px 0;background:repeating-conic-gradient(#eee 0 25%,#fff 0 50%) 0 0/12px 12px;border-radius:6px}
+</style>
+</head>
+<body>
+<header class="top"><button id="back" style="display:none" aria-label="Terug">&#8592;</button><h1 id="title">Seal Facturen</h1><button id="gear" aria-label="Instellingen">&#9881;</button></header>
+<main id="app"></main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+/* ===================== CONFIG ===================== */
+const BRANDS = {
+  bemiddeling:     {naam:'Seal Bemiddeling',     sub:'Bemiddeling en evenementen'},
+  elektrotechniek: {naam:'Seal Elektrotechniek', sub:'Elektrotechnische diensten'},
+  recycling:       {naam:'Seal Recycling',       sub:'Recycling en hergebruik'}
+};
+const DEFAULT_CO = {
+  adres:'Theo van Doesburgstraat 8c', plaats:'3544 MH Utrecht', email:'', telefoon:'06 10 55 81 87',
+  kvk:'76832376', btw:'NL003139314B19', iban:'NL27 INGB 0006 6032 94', tnv:'', volgend:1, logo:''
+};
+const BRAND_EMAIL={bemiddeling:'info@sealbemiddeling.nl',elektrotechniek:'info@sealelektrotechniek.nl',recycling:'info@sealrecycling.nl'};
+const PRESETS = {
+  elektrotechniek:[{omschr:'Arbeid per uur',prijs:60,btw:21},{omschr:'Voorrijkosten',prijs:35,btw:21}],
+  bemiddeling:[{omschr:'Bemiddelingskosten',prijs:0,btw:21}],
+  recycling:[{omschr:'Ophaal en verwerking',prijs:0,btw:21}]
+};
+
+/* ===================== MONEY + PDF ===================== */
+//#PDF-START
+const eur = c => (c/100).toLocaleString('nl-NL',{style:'currency',currency:'EUR'});
+function calc(regels,verlegd){
+  let sub=0; const per={};
+  regels.forEach(r=>{
+    const t=Math.round((+r.aantal||0)*(+r.prijs||0)*100);
+    const p=verlegd?0:r.btw;
+    r._t=t; sub+=t; per[p]=(per[p]||0)+t;
+  });
+  const btw=Object.keys(per).map(k=>({pct:+k,basis:per[k],bedrag:Math.round(per[k]*(+k)/100)})).sort((a,b)=>a.pct-b.pct);
+  const totBtw=btw.reduce((s,b)=>s+b.bedrag,0);
+  return {sub,btw,totBtw,totaal:sub+totBtw,verlegd:!!verlegd};
+}
+function fmtDate(iso){const [y,m,d]=iso.split('-');return `${d}-${m}-${y}`}
+function addDays(iso,n){const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)}
+function buildPdf(jsPDF, inv, co, brandNaam){
+  const doc=new jsPDF({unit:'mm',format:'a4'});
+  const W=210,M=18,R=W-M; let y=18;
+  const gold=[184,146,58], ink=[28,28,30], mut=[110,110,115];
+  doc.setTextColor(...ink);
+  // logo or wordmark
+  let logoH=0;
+  if(co.logo){
+    try{
+      const p=doc.getImageProperties(co.logo); const maxW=55,maxH=24;
+      let w=maxW,h=w*p.height/p.width; if(h>maxH){h=maxH;w=h*p.width/p.height}
+      doc.addImage(co.logo,p.fileType||'PNG',M,y,w,h); logoH=h;
+    }catch(e){logoH=0}
+  }
+  if(!logoH){doc.setFont('helvetica','bold');doc.setFontSize(20);doc.text(brandNaam.toUpperCase(),M,y+7);logoH=10}
+  // company block right
+  doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...mut);
+  const cl=[brandNaam,co.adres,co.plaats,co.telefoon,co.email].filter(Boolean);
+  cl.forEach((t,i)=>doc.text(t,R,y+3+i*4.2,{align:'right'}));
+  y+=Math.max(logoH,cl.length*4.2)+10;
+  doc.setDrawColor(...gold);doc.setLineWidth(.6);doc.line(M,y,R,y);y+=10;
+  // title + meta
+  doc.setTextColor(...ink);doc.setFont('helvetica','bold');doc.setFontSize(22);doc.text('FACTUUR',M,y);
+  const vervaldatum=addDays(inv.datum,+inv.termijn||0);
+  doc.setFontSize(9.5);doc.setFont('helvetica','normal');
+  const meta=[['Factuurnummer',inv.nummer],['Factuurdatum',fmtDate(inv.datum)],['Vervaldatum',fmtDate(vervaldatum)]];
+  meta.forEach((m,i)=>{doc.setTextColor(...mut);doc.text(m[0],R-52,y-5+i*5);doc.setTextColor(...ink);doc.setFont('helvetica','bold');doc.text(m[1],R,y-5+i*5,{align:'right'});doc.setFont('helvetica','normal')});
+  y+=14;
+  // customer
+  doc.setTextColor(...mut);doc.setFontSize(8.5);doc.text('FACTUUR AAN',M,y);y+=5;
+  doc.setTextColor(...ink);doc.setFontSize(10.5);
+  const k=inv.klant;
+  [k.naam,k.tav?('T.a.v. '+k.tav):'',k.adres,k.plaats,k.btw?('BTW: '+k.btw):''].filter(Boolean).forEach((t,i)=>{
+    doc.setFont('helvetica',i===0?'bold':'normal');doc.text(t,M,y);y+=5});
+  y+=4;
+  if(inv.betreft){doc.setFont('helvetica','bold');doc.setFontSize(10.5);doc.text('Betreft: '+inv.betreft,M,y,{maxWidth:R-M});y+=8}
+  // table
+  const cx={o:M+2,a:R-78,p:R-52,b:R-28,t:R};
+  const head=()=>{
+    doc.setFillColor(...ink);doc.rect(M,y,R-M,7.5,'F');
+    doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(8.5);
+    doc.text('OMSCHRIJVING',cx.o,y+5);doc.text('AANTAL',cx.a,y+5,{align:'right'});doc.text('PRIJS',cx.p,y+5,{align:'right'});doc.text('BTW',cx.b,y+5,{align:'right'});doc.text('TOTAAL',cx.t-1,y+5,{align:'right'});
+    y+=7.5;doc.setTextColor(...ink);doc.setFont('helvetica','normal');doc.setFontSize(10);
+  };
+  head();
+  const c=calc(inv.regels.map(r=>({...r})),inv.verlegd);
+  inv.regels.forEach((r,i)=>{
+    const lines=doc.splitTextToSize(r.omschr||'',cx.a-cx.o-18);
+    const h=Math.max(7,lines.length*4.6+3);
+    if(y+h>270){doc.addPage();y=18;head()}
+    if(i%2===1){doc.setFillColor(248,246,240);doc.rect(M,y,R-M,h,'F')}
+    doc.text(lines,cx.o,y+5);
+    const q=(+r.aantal||0);
+    doc.text(String(q).replace('.',','),cx.a,y+5,{align:'right'});
+    doc.text(eur(Math.round((+r.prijs||0)*100)),cx.p,y+5,{align:'right'});
+    doc.text(inv.verlegd?'verlegd':r.btw+'%',cx.b,y+5,{align:'right'});
+    doc.text(eur(Math.round(q*(+r.prijs||0)*100)),cx.t-1,y+5,{align:'right'});
+    y+=h;
+  });
+  doc.setDrawColor(220,216,206);doc.setLineWidth(.2);doc.line(M,y,R,y);y+=6;
+  // totals
+  if(y>235){doc.addPage();y=18}
+  const row=(l,v,bold)=>{doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(bold?12:10);doc.text(l,R-62,y);doc.text(v,R-1,y,{align:'right'});y+=bold?7:5.2};
+  row('Subtotaal (excl. BTW)',eur(c.sub));
+  if(c.verlegd)row('BTW verlegd',eur(0));else c.btw.forEach(b=>row(`BTW ${b.pct}% over ${eur(b.basis)}`,eur(b.bedrag)));
+  doc.setDrawColor(...gold);doc.setLineWidth(.5);doc.line(R-64,y-2,R,y-2);y+=2;
+  doc.setTextColor(...ink);row('Totaal te betalen',eur(c.totaal),true);
+  y+=6;
+  // payment
+  if(y>245){doc.addPage();y=18}
+  doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(...ink);
+  const pay=`Wij verzoeken u het bedrag van ${eur(c.totaal)} uiterlijk op ${fmtDate(vervaldatum)} over te maken op IBAN ${co.iban}${co.tnv?(' t.n.v. '+co.tnv):''}, onder vermelding van factuurnummer ${inv.nummer}.`;
+  doc.text(doc.splitTextToSize(pay,R-M),M,y);y+=doc.splitTextToSize(pay,R-M).length*4.6+3;
+  if(inv.verlegd){doc.setFont('helvetica','bold');doc.setTextColor(...ink);const vt=`BTW verlegd naar: ${inv.klant.btw||'(BTW-nummer afnemer)'}`;doc.text(vt,M,y);y+=6;doc.setFont('helvetica','normal')}
+  if(inv.opmerking){doc.setTextColor(...mut);const o=doc.splitTextToSize(inv.opmerking,R-M);doc.text(o,M,y);y+=o.length*4.6}
+  // footer
+  doc.setFontSize(8);doc.setTextColor(...mut);
+  const foot=`${brandNaam}  |  KVK ${co.kvk}  |  BTW ${co.btw}  |  IBAN ${co.iban}`;
+  const pages=doc.getNumberOfPages();
+  for(let p=1;p<=pages;p++){doc.setPage(p);doc.setDrawColor(220,216,206);doc.line(M,284,R,284);doc.text(foot,W/2,289,{align:'center'});if(pages>1)doc.text(`${p}/${pages}`,R,289,{align:'right'})}
+  return doc;
+}
+
+/* ---- BTW-aangifte ---- */
+function periodRange(y,code){
+  if(code[0]==='Q'){const q=+code[1];return {van:`${y}-${String((q-1)*3+1).padStart(2,'0')}-01`,tot:`${y}-${String(q*3).padStart(2,'0')}-31`,label:`${q}e kwartaal ${y}`}}
+  const m=+code.slice(1),nm=['januari','februari','maart','april','mei','juni','juli','augustus','september','oktober','november','december'];
+  return {van:`${y}-${String(m).padStart(2,'0')}-01`,tot:`${y}-${String(m).padStart(2,'0')}-31`,label:`${nm[m-1]} ${y}`};
+}
+function btwReport(invoices,range,voorbCents,brandNamen){
+  const rows=[],r={a:{basis:0,btw:0},b:{basis:0,btw:0},e:{basis:0},verlegd:0};
+  invoices.filter(i=>i.datum>=range.van&&i.datum<=range.tot).sort((x,y)=>x.datum.localeCompare(y.datum)||x.nummer.localeCompare(y.nummer)).forEach(i=>{
+    const c=calc(i.regels.map(x=>({...x})),i.verlegd);
+    c.btw.forEach(b=>{if(b.pct===21){r.a.basis+=b.basis;r.a.btw+=b.bedrag}else if(b.pct===9){r.b.basis+=b.basis;r.b.btw+=b.bedrag}else{r.e.basis+=b.basis;if(i.verlegd)r.verlegd+=b.basis}});
+    rows.push({nummer:i.nummer,datum:i.datum,klant:i.klant.naam,brand:brandNamen[i.brand],excl:c.sub,btw:c.totBtw,incl:c.totaal,soort:i.verlegd?'verlegd':''});
+  });
+  const t5a=r.a.btw+r.b.btw;
+  return {range,rows,r,t5a,voorb:voorbCents||0,saldo:t5a-(voorbCents||0),omzet:rows.reduce((s,x)=>s+x.excl,0)};
+}
+function btwCsv(rep){
+  const n=c=>(c/100).toFixed(2).replace('.',',');
+  const q=t=>'"'+String(t).replace(/"/g,'""')+'"';
+  const L=[['Factuurnummer','Datum','Klant','Handelsnaam','Excl. BTW','BTW','Incl. BTW','Opmerking'].join(';')];
+  rep.rows.forEach(x=>L.push([x.nummer,fmtDate(x.datum),q(x.klant),q(x.brand),n(x.excl),n(x.btw),n(x.incl),x.soort].join(';')));
+  L.push('');L.push(['Rubriek 1a (21%)','omzet',n(rep.r.a.basis),'btw',n(rep.r.a.btw)].join(';'));
+  L.push(['Rubriek 1b (9%)','omzet',n(rep.r.b.basis),'btw',n(rep.r.b.btw)].join(';'));
+  L.push(['Rubriek 1e (0% / verlegd)','omzet',n(rep.r.e.basis)].join(';'));
+  L.push(['Rubriek 5a Verschuldigde btw','',n(rep.t5a)].join(';'));
+  L.push(['Rubriek 5b Voorbelasting','',n(rep.voorb)].join(';'));
+  L.push(['Te betalen (+) / terug te vragen (-)','',n(rep.saldo)].join(';'));
+  return '﻿'+L.join('\r\n');
+}
+function buildBtwPdf(jsPDF,rep,naam){
+  const doc=new jsPDF({unit:'mm',format:'a4'});const M=16,R=194;let y=18;
+  const ink=[28,28,30],mut=[110,110,115];
+  doc.setFont('helvetica','bold');doc.setFontSize(18);doc.setTextColor(...ink);doc.text('Overzicht BTW-aangifte',M,y);y+=7;
+  doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(...mut);doc.text(`${naam}  |  periode: ${rep.range.label}  |  op factuurdatum`,M,y);y+=9;
+  const line=(l,a,b,bold)=>{doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(10);doc.setTextColor(...ink);doc.text(l,M,y);if(a!==undefined)doc.text(a,R-40,y,{align:'right'});if(b!==undefined)doc.text(b,R,y,{align:'right'});y+=6};
+  doc.setFillColor(...ink);doc.rect(M,y-4.5,R-M,7,'F');doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(9);
+  doc.text('RUBRIEK',M+2,y);doc.text('OMZET EXCL.',R-40,y,{align:'right'});doc.text('BTW',R-2,y,{align:'right'});y+=8;
+  line('1a  Leveringen/diensten belast met 21%',eur(rep.r.a.basis),eur(rep.r.a.btw));
+  line('1b  Leveringen/diensten belast met 9%',eur(rep.r.b.basis),eur(rep.r.b.btw));
+  line('1e  Belast met 0% of niet bij u belast (incl. verlegd)',eur(rep.r.e.basis),'');
+  y+=1;doc.setDrawColor(200,196,186);doc.line(M,y-3,R,y-3);
+  line('5a  Verschuldigde btw',undefined,eur(rep.t5a),true);
+  line('5b  Voorbelasting (opgegeven)',undefined,eur(rep.voorb));
+  line(rep.saldo>=0?'5c  Te betalen':'5c  Terug te vragen',undefined,eur(Math.abs(rep.saldo)),true);
+  y+=6;doc.setFont('helvetica','bold');doc.setFontSize(11);doc.text(`Facturen in deze periode (${rep.rows.length})`,M,y);y+=6;
+  const head=()=>{doc.setFillColor(238,235,227);doc.rect(M,y-4.5,R-M,6.5,'F');doc.setFont('helvetica','bold');doc.setFontSize(8.5);doc.setTextColor(...ink);
+    doc.text('NUMMER',M+1,y);doc.text('DATUM',M+24,y);doc.text('KLANT',M+44,y);doc.text('EXCL.',R-42,y,{align:'right'});doc.text('BTW',R-22,y,{align:'right'});doc.text('INCL.',R,y,{align:'right'});y+=6;doc.setFont('helvetica','normal')};
+  head();doc.setFontSize(8.5);
+  rep.rows.forEach(x=>{
+    if(y>275){doc.addPage();y=18;head();doc.setFontSize(8.5)}
+    doc.text(x.nummer,M+1,y);doc.text(fmtDate(x.datum),M+24,y);
+    doc.text(doc.splitTextToSize(x.klant+(x.soort?' (verlegd)':''),70)[0],M+44,y);
+    doc.text(eur(x.excl),R-42,y,{align:'right'});doc.text(eur(x.btw),R-22,y,{align:'right'});doc.text(eur(x.incl),R,y,{align:'right'});y+=5.2;
+  });
+  y+=3;doc.setFont('helvetica','bold');doc.text(`Totaal omzet excl. btw: ${eur(rep.omzet)}`,M,y);
+  doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(...mut);
+  doc.text('Voorbelasting (5b) is handmatig opgegeven en komt niet uit de facturen. Controle en indiening door de boekhouder.',M,288);
+  return doc;
+}
+//#PDF-END
+
+/* ===================== STORAGE (IndexedDB, lokaal) ===================== */
+const DB={
+  db:null,
+  open(){return new Promise((res,rej)=>{const q=indexedDB.open('seal-facturen',1);
+    q.onupgradeneeded=()=>{const d=q.result;d.createObjectStore('kv');d.createObjectStore('invoices',{keyPath:'id'});d.createObjectStore('pdfs')};
+    q.onsuccess=()=>{this.db=q.result;res()};q.onerror=()=>rej(q.error)})},
+  tx(s,m,fn){return new Promise((res,rej)=>{const t=this.db.transaction(s,m);const r=fn(t.objectStore(s));t.oncomplete=()=>res(r&&r.result);t.onerror=()=>rej(t.error)})},
+  get(s,k){return this.tx(s,'readonly',o=>o.get(k))},
+  put(s,v,k){return this.tx(s,'readwrite',o=>k===undefined?o.put(v):o.put(v,k))},
+  del(s,k){return this.tx(s,'readwrite',o=>o.delete(k))},
+  all(s){return this.tx(s,'readonly',o=>o.getAll())}
+};
+
+/* ===================== STATE ===================== */
+let S={settings:null,invoices:[],view:'home',draft:null,filter:'all',q:'',viewing:null};
+const $=s=>document.querySelector(s), app=$('#app');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const today=()=>new Date().toISOString().slice(0,10);
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+function toast(t){const e=document.createElement('div');e.className='toast';e.textContent=t;document.body.appendChild(e);setTimeout(()=>e.remove(),2600)}
+
+async function loadAll(){
+  let s=await DB.get('kv','settings')||{};
+  s.co=s.co||{};
+  Object.keys(BRANDS).forEach(b=>{s.co[b]=Object.assign({},DEFAULT_CO,s.co[b]||{});if(!s.co[b].email)s.co[b].email=BRAND_EMAIL[b]});
+  s.driveClientId=s.driveClientId||'';
+  S.settings=s;
+  S.invoices=(await DB.all('invoices')).sort((a,b)=>b.datum.localeCompare(a.datum)||b.nummer.localeCompare(a.nummer));
+}
+const saveSettings=()=>DB.put('kv',S.settings,'settings');
+
+function nextNummer(){
+  const y=new Date().getFullYear();
+  const used=S.invoices.filter(i=>i.nummer.startsWith(y+'-')).map(i=>parseInt(i.nummer.split('-')[1],10)||0);
+  const start=(S.settings.volgendJaar===y?+S.settings.volgend:1)||1;
+  const n=Math.max(start,(used.length?Math.max(...used)+1:1));
+  return `${y}-${String(n).padStart(4,'0')}`;
+}
+
+/* ===================== NAVIGATION ===================== */
+function go(v,extra){S.view=v;Object.assign(S,extra||{});history.pushState({v,viewing:S.viewing},'');render()}
+window.addEventListener('popstate',e=>{S.view=(e.state&&e.state.v)||'home';if(e.state&&e.state.viewing)S.viewing=e.state.viewing;render()});
+$('#back').onclick=()=>history.back();
+$('#gear').onclick=()=>go('settings');
+
+function setTitle(t,back){$('#title').textContent=t;$('#back').style.display=back?'':'none'}
+
+function render(){
+  if(S.view==='home')return viewHome();
+  if(S.view==='new')return viewForm();
+  if(S.view==='history')return viewHistory();
+  if(S.view==='invoice')return viewInvoice();
+  if(S.view==='settings')return viewSettings();
+  if(S.view==='btw')return viewBtw();
+}
+
+/* ===================== HOME ===================== */
+function viewHome(){
+  setTitle('Seal Facturen',false);
+  const open=S.invoices.filter(i=>!i.betaald);
+  const openSum=open.reduce((s,i)=>s+calc(i.regels.map(r=>({...r})),i.verlegd).totaal,0);
+  app.innerHTML=`
+  <div class="card"><h2>Nieuwe factuur voor</h2><div class="brands">
+    ${Object.entries(BRANDS).map(([id,b])=>{const l=S.settings.co[id].logo;return `<button class="brand" data-b="${id}">
+      ${l?`<img src="${l}" alt="">`:`<div class="ph">S</div>`}<span><b>${b.naam}</b><small>${b.sub}</small></span></button>`}).join('')}
+  </div></div>
+  <div class="card"><h2>Overzicht</h2>
+    <div class="tot"><span>Facturen totaal</span><b>${S.invoices.length}</b></div>
+    <div class="tot"><span>Nog niet betaald</span><b>${open.length} (${eur(openSum)})</b></div>
+    <div class="row" style="margin-top:10px"><button class="btn ghost" id="hist">Alle facturen</button><button class="btn ghost" id="btwb">BTW-aangifte</button></div></div>
+  <p class="hint">Alles wordt alleen op dit toestel bewaard. Maak regelmatig een back-up via Instellingen.</p>`;
+  app.querySelectorAll('[data-b]').forEach(b=>b.onclick=()=>newDraft(b.dataset.b));
+  $('#hist').onclick=()=>go('history');
+  $('#btwb').onclick=()=>go('btw');
+}
+function newDraft(brand){
+  const pre=(PRESETS[brand]||[]).map(p=>({...p,aantal:1}));
+  S.draft={id:uid(),brand,nummer:nextNummer(brand),datum:today(),termijn:14,betreft:'',
+    klant:{naam:'',tav:'',adres:'',plaats:'',btw:''},regels:pre.length?[pre[0]]:[{omschr:'',aantal:1,prijs:0,btw:21}],opmerking:'',verlegd:false,betaald:false,created:Date.now()};
+  go('new');
+}
+
+/* ===================== FORM ===================== */
+function viewForm(){
+  const d=S.draft,b=BRANDS[d.brand];
+  setTitle('Factuur '+b.naam.replace('Seal ',''),true);
+  const known=[...new Map(S.invoices.map(i=>[i.klant.naam.toLowerCase(),i.klant])).values()].filter(k=>k.naam);
+  app.innerHTML=`
+  <div class="card"><h2>Handelsnaam</h2><div class="chips">
+    ${Object.entries(BRANDS).map(([id,x])=>`<button class="chip ${id===d.brand?'on':''}" data-b="${id}">${x.naam}</button>`).join('')}</div>
+    <div class="row"><div><label>Factuurnummer</label><input id="nummer" value="${esc(d.nummer)}"></div>
+    <div><label>Datum</label><input id="datum" type="date" value="${d.datum}"></div></div>
+    <div class="row"><div><label>Betaaltermijn (dagen)</label><input id="termijn" type="number" inputmode="numeric" value="${d.termijn}"></div>
+    <div><label>Betreft</label><input id="betreft" value="${esc(d.betreft)}" placeholder="bijv. Installatiewerk"></div></div></div>
+  <div class="card"><h2>Klant</h2>
+    ${known.length?`<select id="kies"><option value="">Eerdere klant kiezen...</option>${known.map((k,i)=>`<option value="${i}">${esc(k.naam)}</option>`).join('')}</select>`:''}
+    <label>Naam / bedrijf</label><input data-k="naam" value="${esc(d.klant.naam)}">
+    <label>T.a.v. (optioneel)</label><input data-k="tav" value="${esc(d.klant.tav)}">
+    <label>Adres</label><input data-k="adres" value="${esc(d.klant.adres)}">
+    <div class="row"><div><label>Postcode en plaats</label><input data-k="plaats" value="${esc(d.klant.plaats)}"></div>
+    <div><label>BTW-nr klant</label><input data-k="btw" value="${esc(d.klant.btw)}"></div></div>
+    <label style="display:flex;gap:10px;align-items:center;margin-top:14px;color:var(--ink)"><input type="checkbox" id="verl" style="width:auto" ${d.verlegd?'checked':''}> BTW verlegd (0%, klant geeft de btw aan)</label>
+    ${d.verlegd?'<p class="hint">Vul hierboven het BTW-nummer van de klant in. Gebruik dit alleen als verlegging van toepassing is, laat dat zo nodig door de boekhouder bevestigen.</p>':''}</div>
+  <div class="card"><h2>Regels</h2><div id="lines"></div>
+    <div class="row"><button class="btn ghost sm" id="addl">+ Regel</button>
+    ${(PRESETS[d.brand]||[]).length>1?`<button class="btn ghost sm" id="pre">+ Standaardtarieven</button>`:''}</div>
+    <div id="tots" style="margin-top:12px"></div></div>
+  <div class="card"><h2>Opmerking (optioneel)</h2><textarea id="opm">${esc(d.opmerking)}</textarea></div>
+  <div class="stack"><button class="btn gold" id="save">Opslaan en PDF maken</button></div>`;
+  app.querySelectorAll('[data-b]').forEach(x=>x.onclick=()=>{d.brand=x.dataset.b;viewForm()});
+  ['nummer','datum','termijn','betreft'].forEach(k=>$('#'+k).oninput=e=>{d[k]=e.target.value});
+  app.querySelectorAll('[data-k]').forEach(x=>x.oninput=e=>{d.klant[x.dataset.k]=e.target.value});
+  const kies=$('#kies');if(kies)kies.onchange=()=>{if(kies.value==='')return;d.klant={tav:'',adres:'',plaats:'',btw:'',...known[kies.value]};viewForm()};
+  $('#opm').oninput=e=>{d.opmerking=e.target.value};
+  $('#verl').onchange=e=>{d.verlegd=e.target.checked;viewForm()};
+  $('#addl').onclick=()=>{d.regels.push({omschr:'',aantal:1,prijs:0,btw:21});drawLines()};
+  const pre=$('#pre');if(pre)pre.onclick=()=>{PRESETS[d.brand].forEach(p=>d.regels.push({...p,aantal:1}));d.regels=d.regels.filter((r,i)=>!(i===0&&!r.omschr&&!+r.prijs&&d.regels.length>1));drawLines()};
+  $('#save').onclick=saveDraft;
+  drawLines();
+}
+function drawLines(){
+  const d=S.draft,box=$('#lines');
+  box.innerHTML=d.regels.map((r,i)=>`<div class="line" data-i="${i}">
+    ${d.regels.length>1?`<button class="x" data-x="${i}">verwijder</button>`:''}
+    <label style="margin-top:0">Omschrijving</label><input data-f="omschr" value="${esc(r.omschr)}">
+    <div class="row"><div><label>Aantal</label><input data-f="aantal" type="number" step="any" inputmode="decimal" value="${r.aantal}"></div>
+    <div><label>Prijs excl. (EUR)</label><input data-f="prijs" type="number" step="any" inputmode="decimal" value="${r.prijs}"></div>
+    <div><label>BTW</label><select data-f="btw" ${d.verlegd?'disabled':''}>${[21,9,0].map(p=>`<option value="${p}" ${+r.btw===p?'selected':''}>${p}%</option>`).join('')}</select></div></div></div>`).join('');
+  box.querySelectorAll('.line').forEach(el=>{const i=+el.dataset.i;
+    el.querySelectorAll('[data-f]').forEach(inp=>{inp.oninput=inp.onchange=()=>{d.regels[i][inp.dataset.f]=inp.dataset.f==='omschr'?inp.value:(inp.dataset.f==='btw'?+inp.value:inp.value);drawTots()}})});
+  box.querySelectorAll('[data-x]').forEach(x=>x.onclick=()=>{d.regels.splice(+x.dataset.x,1);drawLines()});
+  drawTots();
+}
+function drawTots(){
+  const c=calc(S.draft.regels.map(r=>({...r})),S.draft.verlegd);
+  $('#tots').innerHTML=`<div class="tot"><span>Subtotaal</span><span>${eur(c.sub)}</span></div>
+  ${c.verlegd?'<div class="tot"><span>BTW verlegd</span><span>'+eur(0)+'</span></div>':c.btw.map(b=>`<div class="tot"><span>BTW ${b.pct}%</span><span>${eur(b.bedrag)}</span></div>`).join('')}
+  <div class="tot big"><span>Totaal</span><span>${eur(c.totaal)}</span></div>`;
+}
+async function saveDraft(){
+  const d=S.draft;
+  if(!d.klant.naam.trim())return toast('Vul een klantnaam in');
+  if(!d.nummer.trim())return toast('Vul een factuurnummer in');
+  if(!d.regels.some(r=>(r.omschr||'').trim()))return toast('Vul minimaal één regel in');
+  if(S.invoices.some(i=>i.nummer===d.nummer&&i.id!==d.id)&&!confirm('Dit factuurnummer bestaat al. Toch opslaan?'))return;
+  if(d.verlegd&&!d.klant.btw.trim())return toast('BTW verlegd: vul het BTW-nummer van de klant in');
+  d.regels=d.regels.filter(r=>(r.omschr||'').trim()).map(r=>({omschr:r.omschr.trim(),aantal:+r.aantal||0,prijs:+r.prijs||0,btw:d.verlegd?0:+r.btw}));
+  d.co={...S.settings.co[d.brand],logo:''}; // snapshot gegevens (logo wordt uit instellingen gelezen)
+  d.termijn=+d.termijn||0;
+  const blob=await makePdfBlob(d);
+  await DB.put('invoices',d);await DB.put('pdfs',blob,d.id);
+  const used=parseInt(d.nummer.split('-')[1],10),yr=parseInt(d.nummer.split('-')[0],10);
+  if(used&&yr===new Date().getFullYear()&&(S.settings.volgendJaar!==yr||used>=S.settings.volgend)){S.settings.volgend=used+1;S.settings.volgendJaar=yr;await saveSettings()}
+  await loadAll();S.viewing=d.id;
+  toast('Factuur opgeslagen');
+  history.replaceState({v:'history'},'');go('invoice',{viewing:d.id});
+}
+
+/* ===================== PDF HELPERS ===================== */
+function coFor(inv){return {...inv.co,logo:S.settings.co[inv.brand].logo}}
+async function makePdfBlob(inv){
+  if(!window.jspdf)throw new Error('PDF-bibliotheek niet geladen (internet nodig bij eerste gebruik)');
+  const doc=buildPdf(window.jspdf.jsPDF,inv,coFor(inv),BRANDS[inv.brand].naam);
+  return doc.output('blob');
+}
+async function getPdf(inv){
+  let b=await DB.get('pdfs',inv.id);
+  if(!b){b=await makePdfBlob(inv);await DB.put('pdfs',b,inv.id)}
+  return b;
+}
+const fileName=inv=>`Factuur ${inv.nummer} ${inv.klant.naam}`.replace(/[^\w\- .]/g,'').trim()+'.pdf';
+
+async function share(inv){
+  const blob=await getPdf(inv),name=fileName(inv);
+  const file=new File([blob],name,{type:'application/pdf'});
+  const tot=eur(calc(inv.regels.map(r=>({...r})),inv.verlegd).totaal);
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+    try{await navigator.share({files:[file],title:`Factuur ${inv.nummer}`,text:`Factuur ${inv.nummer} van ${BRANDS[inv.brand].naam}, totaal ${tot}.`})}catch(e){}
+  }else{download(inv);toast('PDF gedownload, voeg hem zelf toe aan je mail of app')}
+}
+async function download(inv){
+  const blob=await getPdf(inv);const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download=fileName(inv);document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},4000);
+}
+async function printPdf(inv){
+  const blob=await getPdf(inv);const url=URL.createObjectURL(blob);
+  const w=window.open(url);if(!w)download(inv);
+}
+
+/* ===================== INVOICE DETAIL ===================== */
+async function viewInvoice(){
+  const inv=S.invoices.find(i=>i.id===S.viewing);if(!inv)return go('history');
+  setTitle('Factuur '+inv.nummer,true);
+  const c=calc(inv.regels.map(r=>({...r})),inv.verlegd);
+  app.innerHTML=`
+  <div class="card"><h2>${BRANDS[inv.brand].naam}</h2>
+    <b style="font-size:18px">${esc(inv.klant.naam)}</b><div class="hint">${fmtDate(inv.datum)}${inv.betreft?' | '+esc(inv.betreft):''}</div>
+    <div class="tot big"><span>Totaal</span><span>${eur(c.totaal)}</span></div>
+    <div class="hint">Vervalt op ${fmtDate(addDays(inv.datum,inv.termijn))} | ${inv.betaald?'Betaald':'Nog niet betaald'}</div></div>
+  <div class="stack">
+    <button class="btn gold" id="sh">Delen (WhatsApp, mail, Drive)</button>
+    <div class="row"><button class="btn ghost" id="dl">Download PDF</button><button class="btn ghost" id="pr">Print</button></div>
+    <button class="btn ghost" id="pay">${inv.betaald?'Markeer als niet betaald':'Markeer als betaald'}</button>
+    ${S.settings.driveClientId?`<button class="btn ghost" id="dr">Opslaan in Google Drive</button>`:''}
+    <div class="row"><button class="btn ghost" id="dup">Kopie maken</button><button class="btn ghost" id="edt">Wijzigen</button></div>
+    <button class="btn bad" id="del">Verwijderen</button></div>`;
+  $('#sh').onclick=()=>share(inv).catch(e=>toast(e.message));
+  $('#dl').onclick=()=>download(inv).catch(e=>toast(e.message));
+  $('#pr').onclick=()=>printPdf(inv).catch(e=>toast(e.message));
+  $('#pay').onclick=async()=>{inv.betaald=!inv.betaald;await DB.put('invoices',inv);await loadAll();viewInvoice()};
+  const dr=$('#dr');if(dr)dr.onclick=()=>driveUpload(inv).catch(e=>toast('Drive: '+(e.message||e)));
+  $('#dup').onclick=()=>{S.draft={...JSON.parse(JSON.stringify(inv)),id:uid(),nummer:nextNummer(),datum:today(),betaald:false,created:Date.now()};go('new')};
+  $('#edt').onclick=()=>{S.draft=JSON.parse(JSON.stringify(inv));go('new')};
+  $('#del').onclick=async()=>{if(!confirm('Factuur '+inv.nummer+' definitief verwijderen?'))return;await DB.del('invoices',inv.id);await DB.del('pdfs',inv.id);await loadAll();toast('Verwijderd');history.back()};
+}
+
+/* ===================== HISTORY ===================== */
+function viewHistory(){
+  setTitle('Facturen',true);
+  const list=S.invoices.filter(i=>(S.filter==='all'||i.brand===S.filter)&&(!S.q||(i.klant.naam+i.nummer+i.betreft).toLowerCase().includes(S.q.toLowerCase())));
+  app.innerHTML=`
+  <div class="chips" style="margin-bottom:10px"><button class="chip ${S.filter==='all'?'on':''}" data-f="all">Alle</button>
+    ${Object.entries(BRANDS).map(([id,b])=>`<button class="chip ${S.filter===id?'on':''}" data-f="${id}">${b.naam.replace('Seal ','')}</button>`).join('')}</div>
+  <input id="q" placeholder="Zoek op klant of nummer" value="${esc(S.q)}" style="margin-bottom:10px">
+  <div class="card">${list.length?list.map(i=>{const t=calc(i.regels.map(r=>({...r})),i.verlegd).totaal;return `<div class="inv" data-id="${i.id}">
+    <div class="m"><b>${esc(i.klant.naam)}</b><small>${i.nummer} | ${fmtDate(i.datum)} | ${BRANDS[i.brand].naam.replace('Seal ','')}</small></div>
+    <div class="a">${eur(t)}<br><span class="tag ${i.betaald?'ok':''}">${i.betaald?'betaald':'open'}</span></div></div>`}).join(''):'<p class="hint">Nog geen facturen.</p>'}</div>`;
+  app.querySelectorAll('[data-f]').forEach(x=>x.onclick=()=>{S.filter=x.dataset.f;viewHistory()});
+  $('#q').oninput=e=>{S.q=e.target.value;const p=e.target.selectionStart;viewHistory();const q=$('#q');q.focus();q.setSelectionRange(p,p)};
+  app.querySelectorAll('[data-id]').forEach(x=>x.onclick=()=>go('invoice',{viewing:x.dataset.id}));
+}
+
+
+/* ===================== BTW-AANGIFTE ===================== */
+function curQuarter(){return 'Q'+(Math.floor(new Date().getMonth()/3)+1)}
+function viewBtw(){
+  setTitle('BTW-aangifte',true);
+  const now=new Date(),y=S.btwY||now.getFullYear(),code=S.btwC||curQuarter();
+  const range=periodRange(y,code),key=y+code;
+  S.settings.voorbelasting=S.settings.voorbelasting||{};
+  const vb=Math.round((+S.settings.voorbelasting[key]||0)*100);
+  const brandNamen=Object.fromEntries(Object.entries(BRANDS).map(([k,b])=>[k,b.naam]));
+  const rep=btwReport(S.invoices,range,vb,brandNamen);
+  const opts=['Q1','Q2','Q3','Q4',...Array.from({length:12},(_,i)=>'M'+String(i+1).padStart(2,'0'))];
+  const optLabel=c=>periodRange(y,c).label.replace(' '+y,'');
+  app.innerHTML=`
+  <div class="card"><div class="row"><div><label style="margin-top:0">Jaar</label><select id="by">${[now.getFullYear()-1,now.getFullYear()].map(v=>`<option ${v===y?'selected':''}>${v}</option>`).join('')}</select></div>
+  <div><label style="margin-top:0">Periode</label><select id="bc">${opts.map(c=>`<option value="${c}" ${c===code?'selected':''}>${optLabel(c)}</option>`).join('')}</select></div></div>
+  <p class="hint">${rep.rows.length} facturen, gerekend op factuurdatum, alle handelsnamen samen.</p></div>
+  <div class="card"><h2>Aangifte-overzicht</h2>
+    <div class="tot"><span>1a Omzet 21%</span><span>${eur(rep.r.a.basis)}</span></div>
+    <div class="tot"><span>&nbsp;&nbsp;btw 21%</span><span>${eur(rep.r.a.btw)}</span></div>
+    <div class="tot"><span>1b Omzet 9%</span><span>${eur(rep.r.b.basis)}</span></div>
+    <div class="tot"><span>&nbsp;&nbsp;btw 9%</span><span>${eur(rep.r.b.btw)}</span></div>
+    <div class="tot"><span>1e Omzet 0% / verlegd</span><span>${eur(rep.r.e.basis)}</span></div>
+    <div class="tot big"><span>5a Verschuldigde btw</span><span>${eur(rep.t5a)}</span></div>
+    <label>5b Voorbelasting (EUR, uit inkoopfacturen)</label><input id="vb" type="number" step="any" inputmode="decimal" value="${S.settings.voorbelasting[key]||''}" placeholder="0,00">
+    <div class="tot big"><span>${rep.saldo>=0?'Te betalen':'Terug te vragen'}</span><span>${eur(Math.abs(rep.saldo))}</span></div></div>
+  <div class="stack"><button class="btn gold" id="bsh">Delen met boekhouder (PDF + Excel)</button>
+  <div class="row"><button class="btn ghost" id="bpd">Download PDF</button><button class="btn ghost" id="bcs">Download CSV</button></div></div>`;
+  $('#by').onchange=e=>{S.btwY=+e.target.value;viewBtw()};
+  $('#bc').onchange=e=>{S.btwC=e.target.value;viewBtw()};
+  $('#vb').onchange=async e=>{S.settings.voorbelasting[key]=+e.target.value||0;await saveSettings();viewBtw()};
+  const mk=()=>{
+    const doc=buildBtwPdf(window.jspdf.jsPDF,rep,'Seal (eenmanszaak)');
+    const base=`BTW overzicht ${range.label}`.replace(/[^\w\- ]/g,'');
+    return {pdf:new File([doc.output('blob')],base+'.pdf',{type:'application/pdf'}),csv:new File([btwCsv(rep)],base+'.csv',{type:'text/csv'})};
+  };
+  const dl=f=>{const a=document.createElement('a');a.href=URL.createObjectURL(f);a.download=f.name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},4000)};
+  $('#bpd').onclick=()=>{try{dl(mk().pdf)}catch(e){toast(e.message)}};
+  $('#bcs').onclick=()=>dl(mk().csv);
+  $('#bsh').onclick=async()=>{try{const f=mk();const files=[f.pdf,f.csv];
+    if(navigator.canShare&&navigator.canShare({files}))await navigator.share({files,title:'BTW '+range.label,text:'BTW-overzicht '+range.label});
+    else{dl(f.pdf);dl(f.csv);toast('Bestanden gedownload, stuur ze per mail door')}}catch(e){if(e.name!=='AbortError')toast(e.message)}};
+}
+
+/* ===================== SETTINGS ===================== */
+function viewSettings(){
+  setTitle('Instellingen',true);
+  const s=S.settings;
+  app.innerHTML=Object.entries(BRANDS).map(([id,b])=>{const c=s.co[id];return `
+  <div class="card" data-brand="${id}"><h2>${b.naam}</h2>
+    ${c.logo?`<img class="logo-prev" src="${c.logo}" alt="">`:'<p class="hint">Nog geen logo</p>'}
+    <div class="row"><label class="btn ghost sm" style="margin:0;cursor:pointer">Logo kiezen<input type="file" accept="image/*" data-logo="${id}" hidden></label>
+    ${c.logo?`<a class="btn ghost sm" href="${c.logo}" download="Logo ${b.naam}.png">Logo downloaden</a><button class="btn bad sm" data-nologo="${id}">Logo weg</button>`:''}</div>
+    ${[['adres','Adres'],['plaats','Postcode en plaats'],['telefoon','Telefoon'],['email','E-mail'],['kvk','KVK'],['btw','BTW-nummer'],['iban','IBAN'],['tnv','Ten name van (optioneel)']].map(([k,l])=>`<label>${l}</label><input data-c="${id}.${k}" value="${esc(c[k])}" ${k==='volgend'?'type="number" inputmode="numeric"':''}>`).join('')}
+  </div>`}).join('')+`
+  <div class="card"><h2>Factuurnummering</h2><p class="hint">Eén doorlopende reeks voor alle handelsnamen (eenmanszaak), per jaar in de vorm JJJJ-0001.</p>
+    <label>Volgend factuurnummer dit jaar</label><input id="volg" type="number" inputmode="numeric" value="${nextNummer().split('-')[1]*1}"></div>
+  <div class="card"><h2>Back-up</h2><p class="hint">Facturen staan alleen op dit toestel. Bewaar regelmatig een back-up, bijvoorbeeld in Drive of per mail naar jezelf.</p>
+    <div class="stack"><button class="btn ghost" id="exp">Back-up maken</button>
+    <label class="btn ghost" style="cursor:pointer">Back-up terugzetten<input type="file" accept="application/json" id="imp" hidden></label></div></div>
+  <div class="card"><h2>Google Drive (optioneel)</h2>
+    <p class="hint">Zonder koppeling kun je via Delen een PDF direct naar de Drive-app sturen. Met een OAuth client-ID uit Google Cloud kan de app facturen ook zelf in een map "Seal Facturen" zetten.</p>
+    <label>OAuth client-ID</label><input id="cid" value="${esc(s.driveClientId)}" placeholder="xxxx.apps.googleusercontent.com"></div>
+  <button class="btn gold" id="saveset">Instellingen opslaan</button>`;
+  app.querySelectorAll('[data-c]').forEach(i=>i.oninput=()=>{const [b,k]=i.dataset.c.split('.');s.co[b][k]=i.value});
+  app.querySelectorAll('[data-logo]').forEach(i=>i.onchange=async()=>{const f=i.files[0];if(!f)return;s.co[i.dataset.logo].logo=await shrinkImage(f);await saveSettings();viewSettings()});
+  app.querySelectorAll('[data-nologo]').forEach(i=>i.onclick=async()=>{s.co[i.dataset.nologo].logo='';await saveSettings();viewSettings()});
+  $('#volg').oninput=e=>{s.volgend=+e.target.value||1;s.volgendJaar=new Date().getFullYear()};
+  $('#cid').oninput=e=>{s.driveClientId=e.target.value.trim()};
+  $('#saveset').onclick=async()=>{await saveSettings();toast('Opgeslagen')};
+  $('#exp').onclick=exportBackup;
+  $('#imp').onchange=importBackup;
+}
+function shrinkImage(file){return new Promise((res,rej)=>{
+  const img=new Image(),u=URL.createObjectURL(file);
+  img.onload=()=>{const m=700,k=Math.min(1,m/Math.max(img.width,img.height));const c=document.createElement('canvas');c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL('image/png'))};
+  img.onerror=rej;img.src=u})}
+async function exportBackup(){
+  const data={versie:1,datum:new Date().toISOString(),settings:S.settings,invoices:S.invoices};
+  const blob=new Blob([JSON.stringify(data)],{type:'application/json'});
+  const name=`seal-facturen-backup-${today()}.json`;
+  const file=new File([blob],name,{type:'application/json'});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:name});return}catch(e){return}}
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+}
+async function importBackup(e){
+  const f=e.target.files[0];if(!f)return;
+  try{const d=JSON.parse(await f.text());
+    if(!d.invoices||!d.settings)throw new Error('Geen geldig back-upbestand');
+    if(!confirm(`${d.invoices.length} facturen terugzetten? Bestaande facturen met hetzelfde nummer worden overschreven.`))return;
+    S.settings=d.settings;await saveSettings();
+    for(const i of d.invoices){await DB.put('invoices',i);await DB.del('pdfs',i.id)}
+    await loadAll();toast('Back-up teruggezet');viewSettings();
+  }catch(err){toast(err.message)}
+}
+
+/* ===================== GOOGLE DRIVE (optioneel) ===================== */
+function loadGis(){return new Promise((res,rej)=>{if(window.google&&google.accounts)return res();const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.onload=res;s.onerror=()=>rej(new Error('Google niet bereikbaar'));document.head.appendChild(s)})}
+async function driveToken(){
+  await loadGis();
+  return new Promise((res,rej)=>{google.accounts.oauth2.initTokenClient({client_id:S.settings.driveClientId,scope:'https://www.googleapis.com/auth/drive.file',
+    callback:r=>r.error?rej(new Error(r.error)):res(r.access_token)}).requestAccessToken({prompt:''})});
+}
+async function driveFolder(tok,name,parent){
+  const q=encodeURIComponent(`name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false${parent?` and '${parent}' in parents`:''}`);
+  const h={Authorization:'Bearer '+tok};
+  const r=await (await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,{headers:h})).json();
+  if(r.files&&r.files[0])return r.files[0].id;
+  const c=await (await fetch('https://www.googleapis.com/drive/v3/files',{method:'POST',headers:{...h,'Content-Type':'application/json'},body:JSON.stringify({name,mimeType:'application/vnd.google-apps.folder',parents:parent?[parent]:undefined})})).json();
+  return c.id;
+}
+async function driveUpload(inv){
+  const tok=await driveToken();
+  const root=await driveFolder(tok,'Seal Facturen');
+  const sub=await driveFolder(tok,BRANDS[inv.brand].naam,root);
+  const blob=await getPdf(inv);
+  const fd=new FormData();
+  fd.append('metadata',new Blob([JSON.stringify({name:fileName(inv),parents:[sub]})],{type:'application/json'}));
+  fd.append('file',blob);
+  const r=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',{method:'POST',headers:{Authorization:'Bearer '+tok},body:fd});
+  if(!r.ok)throw new Error('upload mislukt ('+r.status+')');
+  toast('Opgeslagen in Drive: Seal Facturen / '+BRANDS[inv.brand].naam);
+}
+
+/* ===================== START ===================== */
+(async()=>{
+  await DB.open();await loadAll();
+  if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
+  history.replaceState({v:'home'},'');render();
+})();
+</script>
+</body>
+</html>
