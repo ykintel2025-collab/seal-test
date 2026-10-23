@@ -33,6 +33,7 @@ textarea{min-height:64px;resize:vertical}
 .brand .ph{width:40px;height:40px;border-radius:10px;background:var(--ink);color:var(--gold);display:grid;place-items:center;font-weight:700}
 .brand b{display:block}.brand small{color:var(--mut)}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;z-index:50}.sheet-in{background:#fff;width:100%;border-radius:18px 18px 0 0;padding:18px 16px 24px;display:grid;gap:10px;max-width:640px;margin:0 auto}
 .seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}.seg button{border:2px solid var(--line);background:#fff;border-radius:14px;padding:16px 8px;font:inherit;font-weight:700;font-size:16px;cursor:pointer}.seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
 .step{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);margin:0 0 8px}
 .brand img{height:52px!important;max-width:110px!important}.formlogo{height:56px;max-width:200px;object-fit:contain;display:block;margin:0 0 10px}
@@ -547,13 +548,43 @@ async function getPdf(inv){
 }
 const fileName=inv=>`${inv.type==='opdracht'?'Opdrachtbevestiging':'Factuur'} ${inv.nummer} ${inv.klant.naam}`.replace(/[^\w\- .]/g,'').trim()+'.pdf';
 
-async function share(inv){
-  const blob=await getPdf(inv),name=fileName(inv);
-  const file=new File([blob],name,{type:'application/pdf'});
-  const tot=eur(calc(inv.regels.map(r=>({...r})),inv.verlegd).totaal);
+const _pdfFiles={};
+async function prepFile(inv){
+  if(_pdfFiles[inv.id])return _pdfFiles[inv.id];
+  const blob=await getPdf(inv);_pdfFiles[inv.id]=new File([blob],fileName(inv),{type:'application/pdf'});return _pdfFiles[inv.id];
+}
+function shareText(inv){
+  const tot=eur(calc(inv.regels.map(r=>({...r})),inv.verlegd).totaal),opd=inv.type==='opdracht';
+  return `${opd?'Opdrachtbevestiging':'Factuur'} ${inv.nummer} van ${BRANDS[inv.brand].naam}, totaal ${tot}.`;
+}
+async function share(inv,app){
+  const file=_pdfFiles[inv.id]||await prepFile(inv),text=shareText(inv);
   if(navigator.canShare&&navigator.canShare({files:[file]})){
-    try{await navigator.share({files:[file],title:`Factuur ${inv.nummer}`,text:`Factuur ${inv.nummer} van ${BRANDS[inv.brand].naam}, totaal ${tot}.`})}catch(e){}
-  }else{download(inv);toast('PDF gedownload, voeg hem zelf toe aan je mail of app')}
+    try{await navigator.share({files:[file],title:text,text});return}
+    catch(e){if(e&&e.name==='AbortError')return}
+  }
+  await download(inv);
+  if(app==='wa'){toast('PDF gedownload: voeg hem toe in WhatsApp');setTimeout(()=>{location.href='https://wa.me/?text='+encodeURIComponent(text)},900)}
+  else toast('PDF gedownload, voeg hem zelf toe in je app');
+}
+function shareMenu(inv){
+  const old=document.getElementById('sheet');if(old)old.remove();
+  const el=document.createElement('div');el.id='sheet';el.className='sheet';
+  const mail=inv.klant.email?' ('+esc(inv.klant.email)+')':'';
+  el.innerHTML=`<div class="sheet-in"><h2 style="margin:0 0 4px">Delen via</h2>
+    <button class="btn gold" data-s="mail">E-mail${mail}</button>
+    <button class="btn ghost" data-s="wa">WhatsApp</button>
+    <button class="btn ghost" data-s="any">Andere app...</button>
+    <button class="btn ghost" data-s="dl">Download PDF</button>
+    ${S.settings.driveClientId?'<button class="btn ghost" data-s="dr">Google Drive</button>':''}
+    <button class="btn bad" data-s="x">Annuleren</button></div>`;
+  document.body.appendChild(el);
+  el.onclick=e=>{if(e.target===el)el.remove()};
+  el.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.s;el.remove();if(k==='x')return;
+    const run=k==='mail'?sendMail(inv):k==='wa'?share(inv,'wa'):k==='any'?share(inv):k==='dl'?download(inv):driveUpload(inv);
+    Promise.resolve(run).catch(e=>toast(e.message||String(e)));
+  });
 }
 async function download(inv){
   const blob=await getPdf(inv);const a=document.createElement('a');
@@ -576,18 +607,17 @@ async function viewInvoice(){
     <div class="tot big"><span>Totaal</span><span>${eur(c.totaal)}</span></div>
     <div class="hint">${OPD?'Opdrachtbevestiging':`Vervalt op ${fmtDate(addDays(inv.datum,inv.termijn))} | ${inv.betaald?'Betaald':'Nog niet betaald'}`}${inv.verzonden?' | Gemaild op '+fmtDate(inv.verzonden.slice(0,10)):''}</div></div>
   <div class="stack">
-    <button class="btn gold" id="ml">Mailen naar klant${inv.klant.email?' ('+esc(inv.klant.email)+')':''}</button>
-    <button class="btn ghost" id="sh">Delen (WhatsApp, Drive, ...)</button>
+    <button class="btn gold" id="sh">Delen</button>
     ${OPD?'<button class="btn ghost" id="tof">Maak factuur hiervan</button>':''}
     <div class="row"><button class="btn ghost" id="dl">Download PDF</button><button class="btn ghost" id="pr">Print</button></div>
     ${OPD?'':`<button class="btn ghost" id="pay">${inv.betaald?'Markeer als niet betaald':'Markeer als betaald'}</button>`}
     ${S.settings.driveClientId?`<button class="btn ghost" id="dr">Opslaan in Google Drive</button>`:''}
     <div class="row"><button class="btn ghost" id="dup">Kopie maken</button><button class="btn ghost" id="edt">Wijzigen</button></div>
     <button class="btn bad" id="del">Verwijderen</button></div>`;
-  $('#sh').onclick=()=>share(inv).catch(e=>toast(e.message));
+  prepFile(inv).catch(()=>{});
+  $('#sh').onclick=()=>shareMenu(inv);
   $('#dl').onclick=()=>download(inv).catch(e=>toast(e.message));
   $('#pr').onclick=()=>printPdf(inv).catch(e=>toast(e.message));
-  $('#ml').onclick=()=>sendMail(inv).catch(e=>toast(e.message||String(e)));
   const tof=$('#tof');if(tof)tof.onclick=()=>{S.draft={id:uid(),type:'factuur',brand:inv.brand,nummer:nextNummer('factuur'),datum:today(),termijn:14,betreft:inv.betreft,klant:{...inv.klant},regels:JSON.parse(JSON.stringify(inv.regels)),opmerking:'',verlegd:!!inv.verlegd,betaald:false,created:Date.now()};go('new')};
   const pay=$('#pay');if(pay)pay.onclick=async()=>{inv.betaald=!inv.betaald;await DB.put('invoices',inv);await loadAll();viewInvoice()};
   const dr=$('#dr');if(dr)dr.onclick=()=>driveUpload(inv).catch(e=>toast('Drive: '+(e.message||e)));
