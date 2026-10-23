@@ -66,6 +66,10 @@ const DEFAULT_CO = {
   kvk:'76832376', btw:'NL003139314B19', iban:'NL27 INGB 0006 6032 94', tnv:'', volgend:1, logo:''
 };
 const BRAND_EMAIL={bemiddeling:'info@sealbemiddeling.nl',elektrotechniek:'info@sealelektrotechniek.nl',recycling:'info@sealrecycling.nl'};
+const DEF_VOORW=`Facturatie vindt plaats na uitvoering van de opdracht, met een betaaltermijn van 14 dagen.
+Reis-, verblijf- en overige onkosten zijn, tenzij anders overeengekomen, inbegrepen in het overeengekomen bedrag.
+Wijzigingen in datum, tijd of inhoud worden in onderling overleg vastgesteld.
+Bij annulering door de opdrachtgever binnen 14 dagen voor de uitvoeringsdatum kan een vergoeding in rekening worden gebracht.`;
 const PRESETS = {
   elektrotechniek:[{omschr:'Arbeid per uur',prijs:60,btw:21},{omschr:'Voorrijkosten',prijs:35,btw:21}],
   bemiddeling:[{omschr:'Bemiddelingskosten',prijs:0,btw:21}],
@@ -179,7 +183,7 @@ function periodRange(y,code){
 }
 function btwReport(invoices,range,voorbCents,brandNamen){
   const rows=[],r={a:{basis:0,btw:0},b:{basis:0,btw:0},e:{basis:0},verlegd:0};
-  invoices.filter(i=>i.datum>=range.van&&i.datum<=range.tot).sort((x,y)=>x.datum.localeCompare(y.datum)||x.nummer.localeCompare(y.nummer)).forEach(i=>{
+  invoices.filter(i=>i.type!=='opdracht'&&i.datum>=range.van&&i.datum<=range.tot).sort((x,y)=>x.datum.localeCompare(y.datum)||x.nummer.localeCompare(y.nummer)).forEach(i=>{
     const c=calc(i.regels.map(x=>({...x})),i.verlegd);
     c.btw.forEach(b=>{if(b.pct===21){r.a.basis+=b.basis;r.a.btw+=b.bedrag}else if(b.pct===9){r.b.basis+=b.basis;r.b.btw+=b.bedrag}else{r.e.basis+=b.basis;if(i.verlegd)r.verlegd+=b.basis}});
     rows.push({nummer:i.nummer,datum:i.datum,klant:i.klant.naam,brand:brandNamen[i.brand],excl:c.sub,btw:c.totBtw,incl:c.totaal,soort:i.verlegd?'verlegd':''});
@@ -230,6 +234,80 @@ function buildBtwPdf(jsPDF,rep,naam){
   doc.text('Voorbelasting (5b) is handmatig opgegeven en komt niet uit de facturen. Controle en indiening door de boekhouder.',M,288);
   return doc;
 }
+
+function buildOpdrachtPdf(jsPDF, inv, co, brandNaam){
+  const doc=new jsPDF({unit:'mm',format:'a4'});
+  const W=210,M=18,R=W-M; let y=16;
+  const gold=[184,146,58], ink=[28,28,30], mut=[110,110,115];
+  doc.setTextColor(...ink);
+  let logoH=0;
+  if(co.logo){try{const p=doc.getImageProperties(co.logo);const maxW=50,maxH=20;let w=maxW,h=w*p.height/p.width;if(h>maxH){h=maxH;w=h*p.width/p.height}doc.addImage(co.logo,p.fileType||'PNG',M,y,w,h);logoH=h}catch(e){logoH=0}}
+  if(!logoH){doc.setFont('helvetica','bold');doc.setFontSize(18);doc.text(brandNaam.toUpperCase(),M,y+7);logoH=10}
+  doc.setFont('helvetica','normal');doc.setFontSize(8.5);doc.setTextColor(...mut);
+  const cl=[brandNaam,co.adres,co.plaats,co.telefoon,co.email].filter(Boolean);
+  cl.forEach((t,i)=>doc.text(t,R,y+3+i*4,{align:'right'}));
+  y+=Math.max(logoH,cl.length*4)+7;
+  doc.setDrawColor(...gold);doc.setLineWidth(.6);doc.line(M,y,R,y);y+=9;
+  doc.setTextColor(...ink);doc.setFont('helvetica','bold');doc.setFontSize(19);doc.text('OPDRACHTBEVESTIGING',M,y);
+  doc.setFontSize(9.5);
+  [['Kenmerk',inv.nummer],['Datum',fmtDate(inv.datum)]].forEach((m,i)=>{doc.setFont('helvetica','normal');doc.setTextColor(...mut);doc.text(m[0],R-40,y-3+i*5);doc.setFont('helvetica','bold');doc.setTextColor(...ink);doc.text(m[1],R,y-3+i*5,{align:'right'})});
+  y+=10;
+  doc.setFont('helvetica','normal');doc.setTextColor(...mut);doc.setFontSize(8);doc.text('OPDRACHTGEVER',M,y);y+=4.5;
+  doc.setTextColor(...ink);doc.setFontSize(10);
+  const k=inv.klant;
+  [k.naam,k.tav?('T.a.v. '+k.tav):'',k.adres,k.plaats].filter(Boolean).forEach((t,i)=>{doc.setFont('helvetica',i===0?'bold':'normal');doc.text(t,M,y);y+=4.8});
+  y+=3;
+  if(inv.betreft){doc.setFont('helvetica','bold');doc.setFontSize(11);doc.text('Betreft: '+inv.betreft,M,y,{maxWidth:R-M});y+=7}
+  doc.setFont('helvetica','normal');doc.setFontSize(9.5);
+  const intro='Hierbij bevestigen wij de opdracht zoals overeengekomen.'+(inv.omschrijving?(' '+inv.omschrijving):'');
+  const il=doc.splitTextToSize(intro,R-M);doc.text(il,M,y);y+=il.length*4.5+3;
+  // afspraken
+  const det=(inv.details||[]).filter(d=>d.k&&d.v);
+  if(det.length){
+    doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(...gold);doc.text('OMSCHRIJVING OPDRACHT',M,y);y+=2;doc.setDrawColor(220,216,206);doc.setLineWidth(.2);doc.line(M,y,R,y);y+=4.5;
+    doc.setTextColor(...ink);doc.setFontSize(9.5);
+    det.forEach(d=>{const vl=doc.splitTextToSize(d.v,R-M-42);const h=Math.max(5,vl.length*4.4+1);
+      if(y+h>262){doc.addPage();y=18}
+      doc.setFont('helvetica','bold');doc.setTextColor(...mut);doc.text(d.k,M,y);doc.setFont('helvetica','normal');doc.setTextColor(...ink);doc.text(vl,M+42,y);y+=h});
+    y+=2;
+  }
+  // vergoeding
+  const regels=(inv.regels||[]).filter(r=>r.omschr);
+  if(regels.length){
+    const c=calc(regels.map(r=>({...r})),inv.verlegd);
+    if(y>225){doc.addPage();y=18}
+    doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(...gold);doc.text('OVEREENGEKOMEN VERGOEDING',M,y);y+=2;doc.setDrawColor(220,216,206);doc.line(M,y,R,y);y+=4.5;
+    doc.setFontSize(9.5);doc.setTextColor(...ink);
+    regels.forEach(r=>{const q=+r.aantal||0;const ol=doc.splitTextToSize((q!==1?String(q).replace('.',',')+' x ':'')+r.omschr,R-M-40);
+      doc.setFont('helvetica','normal');doc.text(ol,M,y);doc.text(eur(Math.round(q*(+r.prijs||0)*100)),R,y,{align:'right'});y+=ol.length*4.5+1});
+    y+=1;doc.setDrawColor(...gold);doc.setLineWidth(.4);doc.line(R-70,y-1,R,y-1);y+=3;
+    doc.setFont('helvetica','normal');doc.text('Totaal excl. BTW',R-70,y);doc.text(eur(c.sub),R,y,{align:'right'});y+=5;
+    if(c.verlegd){doc.text('BTW verlegd',R-70,y);doc.text(eur(0),R,y,{align:'right'});y+=5}
+    else c.btw.forEach(b=>{doc.text(`BTW ${b.pct}%`,R-70,y);doc.text(eur(b.bedrag),R,y,{align:'right'});y+=5});
+    doc.setFont('helvetica','bold');doc.setFontSize(11);doc.text('Totaal incl. BTW',R-70,y);doc.text(eur(c.totaal),R,y,{align:'right'});y+=8;
+    if(c.verlegd){doc.setFontSize(9);doc.text(`BTW verlegd naar: ${k.btw||'(BTW-nummer opdrachtgever)'}`,M,y);y+=6}
+  }
+  // voorwaarden
+  const vw=(inv.voorwaarden||'').split('\n').map(t=>t.trim()).filter(Boolean);
+  if(vw.length){
+    if(y>215){doc.addPage();y=18}
+    doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(...gold);doc.text('VOORWAARDEN',M,y);y+=2;doc.setDrawColor(220,216,206);doc.setLineWidth(.2);doc.line(M,y,R,y);y+=4.5;
+    doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...ink);
+    vw.forEach(t=>{const l=doc.splitTextToSize(t,R-M-5);if(y+l.length*4.2>262){doc.addPage();y=18}doc.text('-',M,y);doc.text(l,M+4,y);y+=l.length*4.2+1.2});
+  }
+  // handtekeningen
+  if(y>258){doc.addPage();y=18}
+  y=Math.max(y+8,268);
+  doc.setDrawColor(...ink);doc.setLineWidth(.3);
+  doc.line(M,y,M+75,y);doc.line(R-75,y,R,y);
+  doc.setFont('helvetica','normal');doc.setFontSize(8.5);doc.setTextColor(...mut);
+  doc.text('Namens '+brandNaam+', datum en handtekening',M,y+4.5);
+  doc.text('Namens '+(k.naam||'opdrachtgever')+', datum en handtekening',R-75,y+4.5);
+  const foot=`${brandNaam}  |  KVK ${co.kvk}  |  BTW ${co.btw}  |  IBAN ${co.iban}`;
+  const pages=doc.getNumberOfPages();
+  for(let p=1;p<=pages;p++){doc.setPage(p);doc.setDrawColor(220,216,206);doc.setLineWidth(.2);doc.line(M,284,R,284);doc.setFontSize(8);doc.text(foot,W/2,289,{align:'center'});if(pages>1)doc.text(`${p}/${pages}`,R,289,{align:'right'})}
+  return doc;
+}
 //#PDF-END
 
 /* ===================== STORAGE (IndexedDB, lokaal) ===================== */
@@ -263,8 +341,9 @@ async function loadAll(){
 }
 const saveSettings=()=>DB.put('kv',S.settings,'settings');
 
-function nextNummer(){
+function nextNummer(type){
   const y=new Date().getFullYear();
+  if(type==='opdracht'){const u=S.invoices.filter(i=>(i.nummer||'').startsWith('OB-'+y+'-')).map(i=>parseInt(i.nummer.split('-')[2],10)||0);return `OB-${y}-${String((u.length?Math.max(...u):0)+1).padStart(3,'0')}`}
   const used=S.invoices.filter(i=>i.nummer.startsWith(y+'-')).map(i=>parseInt(i.nummer.split('-')[1],10)||0);
   const start=(S.settings.volgendJaar===y?+S.settings.volgend:1)||1;
   const n=Math.max(start,(used.length?Math.max(...used)+1:1));
@@ -291,66 +370,79 @@ function render(){
 /* ===================== HOME ===================== */
 function viewHome(){
   setTitle('Seal Facturen',false);
-  const open=S.invoices.filter(i=>!i.betaald);
+  const open=S.invoices.filter(i=>i.type!=='opdracht'&&!i.betaald);
   const openSum=open.reduce((s,i)=>s+calc(i.regels.map(r=>({...r})),i.verlegd).totaal,0);
   app.innerHTML=`
-  <div class="card"><h2>Nieuwe factuur voor</h2><div class="brands">
+  <div class="card"><div class="chips"><button class="chip ${S.docType!=='opdracht'?'on':''}" data-dt="factuur">Factuur</button><button class="chip ${S.docType==='opdracht'?'on':''}" data-dt="opdracht">Opdrachtbevestiging</button></div></div>
+  <div class="card"><h2>${S.docType==='opdracht'?'Nieuwe opdrachtbevestiging voor':'Nieuwe factuur voor'}</h2><div class="brands">
     ${Object.entries(BRANDS).map(([id,b])=>{const l=S.settings.co[id].logo;return `<button class="brand" data-b="${id}">
       ${l?`<img src="${l}" alt="">`:`<div class="ph">S</div>`}<span><b>${b.naam}</b><small>${b.sub}</small></span></button>`}).join('')}
   </div></div>
   <div class="card"><h2>Overzicht</h2>
-    <div class="tot"><span>Facturen totaal</span><b>${S.invoices.length}</b></div>
+    <div class="tot"><span>Facturen totaal</span><b>${S.invoices.filter(i=>i.type!=='opdracht').length}</b></div>
     <div class="tot"><span>Nog niet betaald</span><b>${open.length} (${eur(openSum)})</b></div>
     <div class="row" style="margin-top:10px"><button class="btn ghost" id="hist">Alle facturen</button><button class="btn ghost" id="btwb">BTW-aangifte</button></div></div>
   <p class="hint">Alles wordt alleen op dit toestel bewaard. Maak regelmatig een back-up via Instellingen.</p>`;
-  app.querySelectorAll('[data-b]').forEach(b=>b.onclick=()=>newDraft(b.dataset.b));
+  app.querySelectorAll('[data-dt]').forEach(b=>b.onclick=()=>{S.docType=b.dataset.dt;viewHome()});
+  app.querySelectorAll('[data-b]').forEach(b=>b.onclick=()=>newDraft(b.dataset.b,S.docType));
   $('#hist').onclick=()=>go('history');
   $('#btwb').onclick=()=>go('btw');
 }
-function newDraft(brand){
+function newDraft(brand,type){
+  type=type==='opdracht'?'opdracht':'factuur';
   const pre=(PRESETS[brand]||[]).map(p=>({...p,aantal:1}));
-  S.draft={id:uid(),brand,nummer:nextNummer(brand),datum:today(),termijn:14,betreft:'',
-    klant:{naam:'',tav:'',adres:'',plaats:'',btw:''},regels:pre.length?[pre[0]]:[{omschr:'',aantal:1,prijs:0,btw:21}],opmerking:'',verlegd:false,betaald:false,created:Date.now()};
+  S.draft={id:uid(),type,brand,nummer:nextNummer(type),datum:today(),termijn:14,betreft:'',
+    klant:{naam:'',tav:'',email:'',adres:'',plaats:'',btw:''},regels:type==='opdracht'?[{omschr:'',aantal:1,prijs:0,btw:21}]:(pre.length?[pre[0]]:[{omschr:'',aantal:1,prijs:0,btw:21}]),opmerking:'',verlegd:false,betaald:false,created:Date.now(),
+    omschrijving:'',details:type==='opdracht'?[{k:'Evenement / opdracht',v:''},{k:'Datum',v:''},{k:'Locatie',v:''}]:[],voorwaarden:type==='opdracht'?DEF_VOORW:''};
   go('new');
 }
 
 /* ===================== FORM ===================== */
 function viewForm(){
   const d=S.draft,b=BRANDS[d.brand];
-  setTitle('Factuur '+b.naam.replace('Seal ',''),true);
+  const OP=d.type==='opdracht';setTitle((OP?'Opdracht ':'Factuur ')+b.naam.replace('Seal ',''),true);
   const known=[...new Map(S.invoices.map(i=>[i.klant.naam.toLowerCase(),i.klant])).values()].filter(k=>k.naam);
   app.innerHTML=`
   <div class="card"><h2>Handelsnaam</h2><div class="chips">
     ${Object.entries(BRANDS).map(([id,x])=>`<button class="chip ${id===d.brand?'on':''}" data-b="${id}">${x.naam}</button>`).join('')}</div>
-    <div class="row"><div><label>Factuurnummer</label><input id="nummer" value="${esc(d.nummer)}"></div>
+    <div class="row"><div><label>${OP?'Kenmerk':'Factuurnummer'}</label><input id="nummer" value="${esc(d.nummer)}"></div>
     <div><label>Datum</label><input id="datum" type="date" value="${d.datum}"></div></div>
-    <div class="row"><div><label>Betaaltermijn (dagen)</label><input id="termijn" type="number" inputmode="numeric" value="${d.termijn}"></div>
+    <div class="row">${OP?'':`<div><label>Betaaltermijn (dagen)</label><input id="termijn" type="number" inputmode="numeric" value="${d.termijn}"></div>`}
     <div><label>Betreft</label><input id="betreft" value="${esc(d.betreft)}" placeholder="bijv. Installatiewerk"></div></div></div>
   <div class="card"><h2>Klant</h2>
     ${known.length?`<select id="kies"><option value="">Eerdere klant kiezen...</option>${known.map((k,i)=>`<option value="${i}">${esc(k.naam)}</option>`).join('')}</select>`:''}
     <label>Naam / bedrijf</label><input data-k="naam" value="${esc(d.klant.naam)}">
     <label>T.a.v. (optioneel)</label><input data-k="tav" value="${esc(d.klant.tav)}">
+    <label>E-mail klant (voor mailen)</label><input data-k="email" type="email" inputmode="email" value="${esc(d.klant.email||'')}">
     <label>Adres</label><input data-k="adres" value="${esc(d.klant.adres)}">
     <div class="row"><div><label>Postcode en plaats</label><input data-k="plaats" value="${esc(d.klant.plaats)}"></div>
     <div><label>BTW-nr klant</label><input data-k="btw" value="${esc(d.klant.btw)}"></div></div>
     <label style="display:flex;gap:10px;align-items:center;margin-top:14px;color:var(--ink)"><input type="checkbox" id="verl" style="width:auto" ${d.verlegd?'checked':''}> BTW verlegd (0%, klant geeft de btw aan)</label>
     ${d.verlegd?'<p class="hint">Vul hierboven het BTW-nummer van de klant in. Gebruik dit alleen als verlegging van toepassing is, laat dat zo nodig door de boekhouder bevestigen.</p>':''}</div>
-  <div class="card"><h2>Regels</h2><div id="lines"></div>
+  ${OP?`<div class="card"><h2>Opdracht</h2><label style="margin-top:0">Korte toelichting (optioneel)</label><textarea id="omsch">${esc(d.omschrijving||'')}</textarea>
+    <label>Afspraken (bijv. datum, tijd, locatie)</label><div id="det"></div><button class="btn ghost sm" id="adet" style="margin-top:6px">+ Rij</button></div>`:''}
+  <div class="card"><h2>${OP?'Vergoeding (optioneel)':'Regels'}</h2><div id="lines"></div>
     <div class="row"><button class="btn ghost sm" id="addl">+ Regel</button>
     ${(PRESETS[d.brand]||[]).length>1?`<button class="btn ghost sm" id="pre">+ Standaardtarieven</button>`:''}</div>
     <div id="tots" style="margin-top:12px"></div></div>
-  <div class="card"><h2>Opmerking (optioneel)</h2><textarea id="opm">${esc(d.opmerking)}</textarea></div>
-  <div class="stack"><button class="btn gold" id="save">Opslaan en PDF maken</button></div>`;
+  ${OP?`<div class="card"><h2>Voorwaarden (één per regel)</h2><textarea id="vw" style="min-height:140px">${esc(d.voorwaarden||'')}</textarea></div>`:`<div class="card"><h2>Opmerking (optioneel)</h2><textarea id="opm">${esc(d.opmerking)}</textarea></div>`}
+  <div class="stack"><button class="btn gold" id="save">${OP?'Opslaan en opdrachtbevestiging maken':'Opslaan en PDF maken'}</button></div>`;
   app.querySelectorAll('[data-b]').forEach(x=>x.onclick=()=>{d.brand=x.dataset.b;viewForm()});
-  ['nummer','datum','termijn','betreft'].forEach(k=>$('#'+k).oninput=e=>{d[k]=e.target.value});
+  ['nummer','datum','termijn','betreft'].forEach(k=>{const el=$('#'+k);if(el)el.oninput=e=>{d[k]=e.target.value}});
   app.querySelectorAll('[data-k]').forEach(x=>x.oninput=e=>{d.klant[x.dataset.k]=e.target.value});
   const kies=$('#kies');if(kies)kies.onchange=()=>{if(kies.value==='')return;d.klant={tav:'',adres:'',plaats:'',btw:'',...known[kies.value]};viewForm()};
-  $('#opm').oninput=e=>{d.opmerking=e.target.value};
+  if(OP){$('#omsch').oninput=e=>{d.omschrijving=e.target.value};$('#vw').oninput=e=>{d.voorwaarden=e.target.value};$('#adet').onclick=()=>{d.details.push({k:'',v:''});drawDet()};drawDet()}else $('#opm').oninput=e=>{d.opmerking=e.target.value};
   $('#verl').onchange=e=>{d.verlegd=e.target.checked;viewForm()};
   $('#addl').onclick=()=>{d.regels.push({omschr:'',aantal:1,prijs:0,btw:21});drawLines()};
   const pre=$('#pre');if(pre)pre.onclick=()=>{PRESETS[d.brand].forEach(p=>d.regels.push({...p,aantal:1}));d.regels=d.regels.filter((r,i)=>!(i===0&&!r.omschr&&!+r.prijs&&d.regels.length>1));drawLines()};
   $('#save').onclick=saveDraft;
   drawLines();
+}
+function drawDet(){
+  const d=S.draft,box=$('#det');
+  box.innerHTML=d.details.map((x,i)=>`<div class="row" style="margin-bottom:6px" data-i="${i}"><input data-dk="k" placeholder="Onderdeel" value="${esc(x.k)}" style="flex:.8"><input data-dk="v" placeholder="Waarde" value="${esc(x.v)}"><button class="btn bad sm" data-dx="${i}" style="flex:0 0 auto">x</button></div>`).join('');
+  box.querySelectorAll('[data-i]').forEach(r=>{const i=+r.dataset.i;r.querySelectorAll('[data-dk]').forEach(inp=>inp.oninput=()=>{d.details[i][inp.dataset.dk]=inp.value})});
+  box.querySelectorAll('[data-dx]').forEach(b=>b.onclick=()=>{d.details.splice(+b.dataset.dx,1);drawDet()});
 }
 function drawLines(){
   const d=S.draft,box=$('#lines');
@@ -375,16 +467,17 @@ async function saveDraft(){
   const d=S.draft;
   if(!d.klant.naam.trim())return toast('Vul een klantnaam in');
   if(!d.nummer.trim())return toast('Vul een factuurnummer in');
-  if(!d.regels.some(r=>(r.omschr||'').trim()))return toast('Vul minimaal één regel in');
+  if(d.type!=='opdracht'&&!d.regels.some(r=>(r.omschr||'').trim()))return toast('Vul minimaal één regel in');
   if(S.invoices.some(i=>i.nummer===d.nummer&&i.id!==d.id)&&!confirm('Dit factuurnummer bestaat al. Toch opslaan?'))return;
   if(d.verlegd&&!d.klant.btw.trim())return toast('BTW verlegd: vul het BTW-nummer van de klant in');
   d.regels=d.regels.filter(r=>(r.omschr||'').trim()).map(r=>({omschr:r.omschr.trim(),aantal:+r.aantal||0,prijs:+r.prijs||0,btw:d.verlegd?0:+r.btw}));
   d.co={...S.settings.co[d.brand],logo:''}; // snapshot gegevens (logo wordt uit instellingen gelezen)
   d.termijn=+d.termijn||0;
+  if(d.type==='opdracht')d.details=(d.details||[]).filter(x=>x.k.trim()||x.v.trim());
   const blob=await makePdfBlob(d);
   await DB.put('invoices',d);await DB.put('pdfs',blob,d.id);
   const used=parseInt(d.nummer.split('-')[1],10),yr=parseInt(d.nummer.split('-')[0],10);
-  if(used&&yr===new Date().getFullYear()&&(S.settings.volgendJaar!==yr||used>=S.settings.volgend)){S.settings.volgend=used+1;S.settings.volgendJaar=yr;await saveSettings()}
+  if(d.type!=='opdracht'&&used&&yr===new Date().getFullYear()&&(S.settings.volgendJaar!==yr||used>=S.settings.volgend)){S.settings.volgend=used+1;S.settings.volgendJaar=yr;await saveSettings()}
   await loadAll();S.viewing=d.id;
   toast('Factuur opgeslagen');
   history.replaceState({v:'history'},'');go('invoice',{viewing:d.id});
@@ -394,7 +487,7 @@ async function saveDraft(){
 function coFor(inv){return {...inv.co,logo:S.settings.co[inv.brand].logo}}
 async function makePdfBlob(inv){
   if(!window.jspdf)throw new Error('PDF-bibliotheek niet geladen (internet nodig bij eerste gebruik)');
-  const doc=buildPdf(window.jspdf.jsPDF,inv,coFor(inv),BRANDS[inv.brand].naam);
+  const doc=(inv.type==='opdracht'?buildOpdrachtPdf:buildPdf)(window.jspdf.jsPDF,inv,coFor(inv),BRANDS[inv.brand].naam);
   return doc.output('blob');
 }
 async function getPdf(inv){
@@ -402,7 +495,7 @@ async function getPdf(inv){
   if(!b){b=await makePdfBlob(inv);await DB.put('pdfs',b,inv.id)}
   return b;
 }
-const fileName=inv=>`Factuur ${inv.nummer} ${inv.klant.naam}`.replace(/[^\w\- .]/g,'').trim()+'.pdf';
+const fileName=inv=>`${inv.type==='opdracht'?'Opdrachtbevestiging':'Factuur'} ${inv.nummer} ${inv.klant.naam}`.replace(/[^\w\- .]/g,'').trim()+'.pdf';
 
 async function share(inv){
   const blob=await getPdf(inv),name=fileName(inv);
@@ -425,26 +518,30 @@ async function printPdf(inv){
 /* ===================== INVOICE DETAIL ===================== */
 async function viewInvoice(){
   const inv=S.invoices.find(i=>i.id===S.viewing);if(!inv)return go('history');
-  setTitle('Factuur '+inv.nummer,true);
+  const OPD=inv.type==='opdracht';setTitle((OPD?'Opdracht ':'Factuur ')+inv.nummer,true);
   const c=calc(inv.regels.map(r=>({...r})),inv.verlegd);
   app.innerHTML=`
   <div class="card"><h2>${BRANDS[inv.brand].naam}</h2>
     <b style="font-size:18px">${esc(inv.klant.naam)}</b><div class="hint">${fmtDate(inv.datum)}${inv.betreft?' | '+esc(inv.betreft):''}</div>
     <div class="tot big"><span>Totaal</span><span>${eur(c.totaal)}</span></div>
-    <div class="hint">Vervalt op ${fmtDate(addDays(inv.datum,inv.termijn))} | ${inv.betaald?'Betaald':'Nog niet betaald'}</div></div>
+    <div class="hint">${OPD?'Opdrachtbevestiging':`Vervalt op ${fmtDate(addDays(inv.datum,inv.termijn))} | ${inv.betaald?'Betaald':'Nog niet betaald'}`}${inv.verzonden?' | Gemaild op '+fmtDate(inv.verzonden.slice(0,10)):''}</div></div>
   <div class="stack">
-    <button class="btn gold" id="sh">Delen (WhatsApp, mail, Drive)</button>
+    <button class="btn gold" id="ml">Mailen naar klant${inv.klant.email?' ('+esc(inv.klant.email)+')':''}</button>
+    <button class="btn ghost" id="sh">Delen (WhatsApp, Drive, ...)</button>
+    ${OPD?'<button class="btn ghost" id="tof">Maak factuur hiervan</button>':''}
     <div class="row"><button class="btn ghost" id="dl">Download PDF</button><button class="btn ghost" id="pr">Print</button></div>
-    <button class="btn ghost" id="pay">${inv.betaald?'Markeer als niet betaald':'Markeer als betaald'}</button>
+    ${OPD?'':`<button class="btn ghost" id="pay">${inv.betaald?'Markeer als niet betaald':'Markeer als betaald'}</button>`}
     ${S.settings.driveClientId?`<button class="btn ghost" id="dr">Opslaan in Google Drive</button>`:''}
     <div class="row"><button class="btn ghost" id="dup">Kopie maken</button><button class="btn ghost" id="edt">Wijzigen</button></div>
     <button class="btn bad" id="del">Verwijderen</button></div>`;
   $('#sh').onclick=()=>share(inv).catch(e=>toast(e.message));
   $('#dl').onclick=()=>download(inv).catch(e=>toast(e.message));
   $('#pr').onclick=()=>printPdf(inv).catch(e=>toast(e.message));
-  $('#pay').onclick=async()=>{inv.betaald=!inv.betaald;await DB.put('invoices',inv);await loadAll();viewInvoice()};
+  $('#ml').onclick=()=>sendMail(inv).catch(e=>toast(e.message||String(e)));
+  const tof=$('#tof');if(tof)tof.onclick=()=>{S.draft={id:uid(),type:'factuur',brand:inv.brand,nummer:nextNummer('factuur'),datum:today(),termijn:14,betreft:inv.betreft,klant:{...inv.klant},regels:JSON.parse(JSON.stringify(inv.regels)),opmerking:'',verlegd:!!inv.verlegd,betaald:false,created:Date.now()};go('new')};
+  const pay=$('#pay');if(pay)pay.onclick=async()=>{inv.betaald=!inv.betaald;await DB.put('invoices',inv);await loadAll();viewInvoice()};
   const dr=$('#dr');if(dr)dr.onclick=()=>driveUpload(inv).catch(e=>toast('Drive: '+(e.message||e)));
-  $('#dup').onclick=()=>{S.draft={...JSON.parse(JSON.stringify(inv)),id:uid(),nummer:nextNummer(),datum:today(),betaald:false,created:Date.now()};go('new')};
+  $('#dup').onclick=()=>{S.draft={...JSON.parse(JSON.stringify(inv)),id:uid(),nummer:nextNummer(inv.type),verzonden:undefined,datum:today(),betaald:false,created:Date.now()};go('new')};
   $('#edt').onclick=()=>{S.draft=JSON.parse(JSON.stringify(inv));go('new')};
   $('#del').onclick=async()=>{if(!confirm('Factuur '+inv.nummer+' definitief verwijderen?'))return;await DB.del('invoices',inv.id);await DB.del('pdfs',inv.id);await loadAll();toast('Verwijderd');history.back()};
 }
@@ -452,15 +549,17 @@ async function viewInvoice(){
 /* ===================== HISTORY ===================== */
 function viewHistory(){
   setTitle('Facturen',true);
-  const list=S.invoices.filter(i=>(S.filter==='all'||i.brand===S.filter)&&(!S.q||(i.klant.naam+i.nummer+i.betreft).toLowerCase().includes(S.q.toLowerCase())));
+  const list=S.invoices.filter(i=>(S.ftype||'all')==='all'||(i.type||'factuur')===S.ftype).filter(i=>(S.filter==='all'||i.brand===S.filter)&&(!S.q||(i.klant.naam+i.nummer+i.betreft).toLowerCase().includes(S.q.toLowerCase())));
   app.innerHTML=`
   <div class="chips" style="margin-bottom:10px"><button class="chip ${S.filter==='all'?'on':''}" data-f="all">Alle</button>
     ${Object.entries(BRANDS).map(([id,b])=>`<button class="chip ${S.filter===id?'on':''}" data-f="${id}">${b.naam.replace('Seal ','')}</button>`).join('')}</div>
+  <div class="chips" style="margin-bottom:10px">${[['all','Alles'],['factuur','Facturen'],['opdracht','Opdrachten']].map(([v,l])=>`<button class="chip ${(S.ftype||'all')===v?'on':''}" data-ft="${v}">${l}</button>`).join('')}</div>
   <input id="q" placeholder="Zoek op klant of nummer" value="${esc(S.q)}" style="margin-bottom:10px">
   <div class="card">${list.length?list.map(i=>{const t=calc(i.regels.map(r=>({...r})),i.verlegd).totaal;return `<div class="inv" data-id="${i.id}">
     <div class="m"><b>${esc(i.klant.naam)}</b><small>${i.nummer} | ${fmtDate(i.datum)} | ${BRANDS[i.brand].naam.replace('Seal ','')}</small></div>
-    <div class="a">${eur(t)}<br><span class="tag ${i.betaald?'ok':''}">${i.betaald?'betaald':'open'}</span></div></div>`}).join(''):'<p class="hint">Nog geen facturen.</p>'}</div>`;
+    <div class="a">${eur(t)}<br>${i.type==='opdracht'?'<span class="tag">opdracht</span>':`<span class="tag ${i.betaald?'ok':''}">${i.betaald?'betaald':'open'}</span>`}</div></div>`}).join(''):'<p class="hint">Nog geen facturen.</p>'}</div>`;
   app.querySelectorAll('[data-f]').forEach(x=>x.onclick=()=>{S.filter=x.dataset.f;viewHistory()});
+  app.querySelectorAll('[data-ft]').forEach(x=>x.onclick=()=>{S.ftype=x.dataset.ft;viewHistory()});
   $('#q').oninput=e=>{S.q=e.target.value;const p=e.target.selectionStart;viewHistory();const q=$('#q');q.focus();q.setSelectionRange(p,p)};
   app.querySelectorAll('[data-id]').forEach(x=>x.onclick=()=>go('invoice',{viewing:x.dataset.id}));
 }
@@ -525,15 +624,17 @@ function viewSettings(){
   <div class="card"><h2>Back-up</h2><p class="hint">Facturen staan alleen op dit toestel. Bewaar regelmatig een back-up, bijvoorbeeld in Drive of per mail naar jezelf.</p>
     <div class="stack"><button class="btn ghost" id="exp">Back-up maken</button>
     <label class="btn ghost" style="cursor:pointer">Back-up terugzetten<input type="file" accept="application/json" id="imp" hidden></label></div></div>
-  <div class="card"><h2>Google Drive (optioneel)</h2>
-    <p class="hint">Zonder koppeling kun je via Delen een PDF direct naar de Drive-app sturen. Met een OAuth client-ID uit Google Cloud kan de app facturen ook zelf in een map "Seal Facturen" zetten.</p>
-    <label>OAuth client-ID</label><input id="cid" value="${esc(s.driveClientId)}" placeholder="xxxx.apps.googleusercontent.com"></div>
+  <div class="card"><h2>Google Drive en Gmail (optioneel)</h2>
+    <p class="hint">Zonder koppeling opent Mailen het deelmenu van je telefoon met de PDF als bijlage. Met een OAuth client-ID uit Google Cloud (Drive API en Gmail API aan) kan de app facturen ook zelf in Drive zetten en rechtstreeks vanuit je Gmail naar de klant sturen.</p>
+    <label>OAuth client-ID</label><input id="cid" value="${esc(s.driveClientId)}" placeholder="xxxx.apps.googleusercontent.com">
+    <label style="display:flex;gap:10px;align-items:center;color:var(--ink)"><input type="checkbox" id="gm" style="width:auto" ${s.gmail?'checked':''}> Mailen rechtstreeks via Gmail</label></div>
   <button class="btn gold" id="saveset">Instellingen opslaan</button>`;
   app.querySelectorAll('[data-c]').forEach(i=>i.oninput=()=>{const [b,k]=i.dataset.c.split('.');s.co[b][k]=i.value});
   app.querySelectorAll('[data-logo]').forEach(i=>i.onchange=async()=>{const f=i.files[0];if(!f)return;s.co[i.dataset.logo].logo=await shrinkImage(f);await saveSettings();viewSettings()});
   app.querySelectorAll('[data-nologo]').forEach(i=>i.onclick=async()=>{s.co[i.dataset.nologo].logo='';await saveSettings();viewSettings()});
   $('#volg').oninput=e=>{s.volgend=+e.target.value||1;s.volgendJaar=new Date().getFullYear()};
   $('#cid').oninput=e=>{s.driveClientId=e.target.value.trim()};
+  $('#gm').onchange=e=>{s.gmail=e.target.checked};
   $('#saveset').onclick=async()=>{await saveSettings();toast('Opgeslagen')};
   $('#exp').onclick=exportBackup;
   $('#imp').onchange=importBackup;
@@ -564,9 +665,9 @@ async function importBackup(e){
 
 /* ===================== GOOGLE DRIVE (optioneel) ===================== */
 function loadGis(){return new Promise((res,rej)=>{if(window.google&&google.accounts)return res();const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.onload=res;s.onerror=()=>rej(new Error('Google niet bereikbaar'));document.head.appendChild(s)})}
-async function driveToken(){
+async function googleToken(scope){
   await loadGis();
-  return new Promise((res,rej)=>{google.accounts.oauth2.initTokenClient({client_id:S.settings.driveClientId,scope:'https://www.googleapis.com/auth/drive.file',
+  return new Promise((res,rej)=>{google.accounts.oauth2.initTokenClient({client_id:S.settings.driveClientId,scope,
     callback:r=>r.error?rej(new Error(r.error)):res(r.access_token)}).requestAccessToken({prompt:''})});
 }
 async function driveFolder(tok,name,parent){
@@ -578,7 +679,7 @@ async function driveFolder(tok,name,parent){
   return c.id;
 }
 async function driveUpload(inv){
-  const tok=await driveToken();
+  const tok=await googleToken('https://www.googleapis.com/auth/drive.file');
   const root=await driveFolder(tok,'Seal Facturen');
   const sub=await driveFolder(tok,BRANDS[inv.brand].naam,root);
   const blob=await getPdf(inv);
@@ -590,9 +691,75 @@ async function driveUpload(inv){
   toast('Opgeslagen in Drive: Seal Facturen / '+BRANDS[inv.brand].naam);
 }
 
+
+/* ===================== MAILEN ===================== */
+function mailText(inv){
+  const brand=BRANDS[inv.brand].naam,co=S.settings.co[inv.brand];
+  const c=calc(inv.regels.map(r=>({...r})),inv.verlegd);
+  const aanhef=inv.klant.tav?`Beste ${inv.klant.tav},`:'Geachte heer/mevrouw,';
+  const sig=`Met vriendelijke groet,\n${brand}\n${co.telefoon}${co.email?'\n'+co.email:''}`;
+  if(inv.type==='opdracht')return {subject:`Opdrachtbevestiging ${inv.nummer}${inv.betreft?' - '+inv.betreft:''}`,
+    body:`${aanhef}\n\nHierbij ontvangt u onze opdrachtbevestiging${inv.betreft?' voor '+inv.betreft:''}. Wilt u deze ondertekend retourneren of per mail bevestigen?\n\n${sig}`};
+  return {subject:`Factuur ${inv.nummer} van ${brand}`,
+    body:`${aanhef}\n\nHierbij ontvangt u factuur ${inv.nummer}${inv.betreft?' ('+inv.betreft+')':''} ter hoogte van ${eur(c.totaal)}. Wij verzoeken u het bedrag uiterlijk ${fmtDate(addDays(inv.datum,inv.termijn))} over te maken op ${co.iban}, onder vermelding van het factuurnummer.\n\n${sig}`};
+}
+async function gmailSend(inv,t,blob,name,to){
+  const tok=await googleToken('https://www.googleapis.com/auth/gmail.send');
+  const b64=await new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result.split(',')[1]);f.readAsDataURL(blob)});
+  const u8=s=>btoa(unescape(encodeURIComponent(s)));
+  const bd='b'+uid(),from=S.settings.co[inv.brand].email;
+  const raw=[`To: ${to}`,`Subject: =?UTF-8?B?${u8(t.subject)}?=`,'MIME-Version: 1.0',`Content-Type: multipart/mixed; boundary="${bd}"`,'',
+    `--${bd}`,'Content-Type: text/plain; charset="UTF-8"','Content-Transfer-Encoding: base64','',u8(t.body),
+    `--${bd}`,`Content-Type: application/pdf; name="${name}"`,'Content-Transfer-Encoding: base64',`Content-Disposition: attachment; filename="${name}"`,'',b64.replace(/(.{76})/g,'$1\r\n'),`--${bd}--`].join('\r\n');
+  const enc=btoa(raw).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  const r=await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send',{method:'POST',headers:{Authorization:'Bearer '+tok,'Content-Type':'application/json'},body:JSON.stringify({raw:enc})});
+  if(!r.ok)throw new Error('Gmail: versturen mislukt ('+r.status+')');
+}
+async function sendMail(inv){
+  const t=mailText(inv),blob=await getPdf(inv),name=fileName(inv),to=(inv.klant.email||'').trim();
+  if(S.settings.gmail&&S.settings.driveClientId){
+    if(!to)return toast('Vul eerst het e-mailadres van de klant in (Wijzigen)');
+    if(!confirm(`${name} versturen naar ${to}?`))return;
+    await gmailSend(inv,t,blob,name,to);
+    inv.verzonden=new Date().toISOString();await DB.put('invoices',inv);await loadAll();toast('Verstuurd naar '+to);return viewInvoice();
+  }
+  const file=new File([blob],name,{type:'application/pdf'});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+    if(to&&navigator.clipboard)navigator.clipboard.writeText(to).catch(()=>{});
+    if(to)toast('E-mailadres gekopieerd: '+to);
+    try{await navigator.share({files:[file],title:t.subject,text:t.body})}catch(e){}
+  }else{
+    download(inv);
+    location.href=`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(t.subject)}&body=${encodeURIComponent(t.body+'\n\n(De PDF is gedownload, voeg hem toe als bijlage.)')}`;
+  }
+}
+
+/* ===================== STARTDATA (eerdere documenten) ===================== */
+async function seedOnce(){
+  if(S.settings.seeded)return;
+  const co={...S.settings.co.bemiddeling,logo:''};
+  const klant={naam:'SV OBW',tav:'Chiel ter Heerdt, voorzitter',email:'',adres:'Marconistraat 16',plaats:'6902 PC Zevenaar',btw:''};
+  const ob={id:'seed-ob-1',type:'opdracht',brand:'bemiddeling',nummer:'OB-2026-001',datum:'2026-08-01',termijn:14,betreft:'Liemers Inside',klant,co,
+    omschrijving:'Gastspreker / optreden Andy van der Meijde tijdens de voetbalavond Liemers Inside.',
+    details:[{k:'Evenement',v:'Liemers Inside'},{k:'Datum',v:'Donderdag 29 oktober 2026'},{k:'Tijd',v:'20:00 tot circa 22:00 uur'},{k:'Aantal bezoekers',v:'250 personen'},{k:'Doel',v:'Gezellige en humoristische voetbalavond voor leden en sponsors van SV OBW'},
+      {k:'Programma',v:'Warming-up met cabaretier (20 min), 1e helft (presentator en 4 tafelgasten), pauze (15 min), 2e helft (presentator en 4 tafelgasten)'},{k:'Bezetting',v:'1 presentator, 4 tafelgasten, 1 cabaretier (warming-up)'},{k:'Catering',v:'Indien gewenst verzorgt SV OBW vooraf een eenvoudige maaltijd voor Andy van der Meijde op locatie'}],
+    regels:[{omschr:'Gastspreker / optreden Andy van der Meijde, Liemers Inside',aantal:1,prijs:3000,btw:21}],
+    voorwaarden:`Betaling dient uiterlijk 30 dagen voor aanvang van het evenement (uiterlijk 29 september 2026) door Seal Bemiddeling te zijn ontvangen.
+Reis-, verblijf- en overige onkosten zijn, tenzij anders overeengekomen, inbegrepen in bovenstaand bedrag.
+Wijzigingen in datum, tijd of programma-inhoud worden in onderling overleg vastgesteld.
+Bij annulering door de opdrachtgever binnen 14 dagen voor de evenementdatum kan een vergoeding in rekening worden gebracht.
+Indien Andy van der Meijde kort voor het evenement onverhoopt genoodzaakt is af te zeggen, wordt het reeds betaalde bedrag volledig aan SV OBW gerestitueerd.`,
+    opmerking:'',verlegd:false,betaald:false,created:Date.now()-1,seed:true};
+  const f={id:'seed-f-1',type:'factuur',brand:'bemiddeling',nummer:'2026-0245',datum:'2026-08-01',termijn:59,betreft:'Liemers Inside, gastspreker / optreden Andy van der Meijde (29 oktober 2026)',klant,co,
+    regels:[{omschr:'Gastspreker / optreden Andy van der Meijde, Liemers Inside, 29 oktober 2026',aantal:1,prijs:3000,btw:21}],opmerking:'',verlegd:false,betaald:false,created:Date.now(),seed:true};
+  await DB.put('invoices',ob);await DB.put('invoices',f);
+  if(S.settings.volgendJaar!==2026||S.settings.volgend<246){S.settings.volgend=246;S.settings.volgendJaar=2026}
+  S.settings.seeded=true;await saveSettings();await loadAll();
+}
+
 /* ===================== START ===================== */
 (async()=>{
-  await DB.open();await loadAll();
+  await DB.open();await loadAll();try{await seedOnce()}catch(e){console.error(e)}
   if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
   history.replaceState({v:'home'},'');render();
 })();
