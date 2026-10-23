@@ -396,13 +396,14 @@ function newDraft(brand,type){
   type=type==='opdracht'?'opdracht':'factuur';
   const pre=(PRESETS[brand]||[]).map(p=>({...p,aantal:1}));
   S.draft={id:uid(),type,brand,nummer:nextNummer(type),datum:today(),termijn:14,betreft:'',
-    klant:{naam:'',tav:'',email:'',adres:'',plaats:'',btw:''},regels:type==='opdracht'?[{omschr:'',aantal:1,prijs:0,btw:21}]:(pre.length?[pre[0]]:[{omschr:'',aantal:1,prijs:0,btw:21}]),opmerking:'',verlegd:false,betaald:false,created:Date.now(),
-    omschrijving:'',details:type==='opdracht'?[{k:'Evenement / opdracht',v:''},{k:'Datum',v:''},{k:'Locatie',v:''}]:[],voorwaarden:type==='opdracht'?DEF_VOORW:''};
+    klant:{naam:'',tav:'',email:'',adres:'',plaats:'',btw:''},regels:type==='opdracht'?[{omschr:'Overeengekomen bedrag',aantal:1,prijs:0,btw:21}]:(pre.length?[pre[0]]:[{omschr:'',aantal:1,prijs:0,btw:21}]),opmerking:'',verlegd:false,betaald:false,created:Date.now(),
+    omschrijving:'',details:type==='opdracht'?[{k:'Datum en tijd',v:''},{k:'Locatie',v:''}]:[],voorwaarden:type==='opdracht'?DEF_VOORW:''};
   go('new');
 }
 
 /* ===================== FORM ===================== */
 function viewForm(){
+  if(S.draft.type==='opdracht')return viewOpdracht();
   const d=S.draft,b=BRANDS[d.brand];
   const OP=d.type==='opdracht';setTitle((OP?'Opdracht ':'Factuur ')+b.naam.replace('Seal ',''),true);
   const known=[...new Map(S.invoices.map(i=>[i.klant.naam.toLowerCase(),i.klant])).values()].filter(k=>k.naam);
@@ -442,6 +443,51 @@ function viewForm(){
   $('#save').onclick=saveDraft;
   drawLines();
 }
+function viewOpdracht(){
+  const d=S.draft,b=BRANDS[d.brand];setTitle('Opdrachtbevestiging '+b.naam.replace('Seal ',''),true);
+  if(!d.details||d.details[0]?.k!=='Datum en tijd'||d.details[1]?.k!=='Locatie'){
+    const old=d.details||[],g=n=>old.filter(x=>n.includes(x.k)).map(x=>x.v).filter(Boolean).join(', ');
+    d.details=[{k:'Datum en tijd',v:g(['Datum','Tijd','Datum en tijd'])},{k:'Locatie',v:g(['Locatie'])},...old.filter(x=>!['Datum','Tijd','Datum en tijd','Locatie'].includes(x.k))];
+  }
+  if(!d.regels.length)d.regels=[{omschr:'Overeengekomen bedrag',aantal:1,prijs:0,btw:21}];
+  const r=d.regels[0];r.aantal=1;
+  const known=[...new Map(S.invoices.map(i=>[i.klant.naam.toLowerCase(),i.klant])).values()].filter(k=>k.naam);
+  const logo=S.settings.co[d.brand].logo;
+  app.innerHTML=`
+  <div class="card"><h2>Handelsnaam</h2>${logo?`<img class="formlogo" src="${logo}" alt="">`:''}<div class="chips">
+    ${Object.entries(BRANDS).map(([id,x])=>`<button class="chip ${id===d.brand?'on':''}" data-b="${id}">${x.naam}</button>`).join('')}</div></div>
+  <div class="card"><h2>1. Klant</h2>
+    ${known.length?`<select id="kies"><option value="">Eerdere klant kiezen...</option>${known.map((k,i)=>`<option value="${i}">${esc(k.naam)}</option>`).join('')}</select>`:''}
+    <label>Naam / bedrijf</label><input data-k="naam" value="${esc(d.klant.naam)}">
+    <label>T.a.v. (optioneel)</label><input data-k="tav" value="${esc(d.klant.tav)}">
+    <label>Adres</label><input data-k="adres" value="${esc(d.klant.adres)}">
+    <label>Postcode en plaats</label><input data-k="plaats" value="${esc(d.klant.plaats)}">
+    <label>E-mail klant (om te mailen)</label><input data-k="email" type="email" inputmode="email" value="${esc(d.klant.email||'')}"></div>
+  <div class="card"><h2>2. De opdracht</h2>
+    <label style="margin-top:0">Titel</label><input id="betreft" value="${esc(d.betreft)}" placeholder="bijv. Liemers Inside">
+    <label>Wat gaan we doen?</label><textarea id="omsch" placeholder="Korte omschrijving van het werk">${esc(d.omschrijving||'')}</textarea>
+    <label>Wanneer? (datum en tijd)</label><input id="wanneer" value="${esc(d.details[0].v)}" placeholder="bijv. 29 oktober 2026, 20:00 uur">
+    <label>Waar?</label><input id="waar" value="${esc(d.details[1].v)}" placeholder="bijv. Zevenaar"></div>
+  <div class="card"><h2>3. Prijs</h2>
+    <div class="row"><div><label style="margin-top:0">Bedrag excl. btw (EUR)</label><input id="prijs" type="number" step="any" inputmode="decimal" value="${+r.prijs||''}" placeholder="0"></div>
+    <div><label style="margin-top:0">BTW</label><select id="btwp">${[21,9,0].map(p=>`<option value="${p}" ${+r.btw===p?'selected':''}>${p}%</option>`).join('')}</select></div></div>
+    <div id="tots" style="margin-top:12px"></div></div>
+  <div class="card"><details><summary style="font-weight:700;cursor:pointer">Voorwaarden (standaard ingevuld)</summary>
+    <textarea id="vw" style="min-height:140px;margin-top:10px">${esc(d.voorwaarden||'')}</textarea><p class="hint">Eén voorwaarde per regel.</p></details>
+    <p class="hint" style="margin-top:10px">Kenmerk ${esc(d.nummer)} wordt automatisch toegekend. Datum: ${fmtDate(d.datum)}.</p></div>
+  <div class="stack"><button class="btn gold" id="save">Opslaan en opdrachtbevestiging maken</button></div>`;
+  app.querySelectorAll('[data-b]').forEach(x=>x.onclick=()=>{d.brand=x.dataset.b;viewOpdracht()});
+  app.querySelectorAll('[data-k]').forEach(x=>x.oninput=e=>{d.klant[x.dataset.k]=e.target.value});
+  const kies=$('#kies');if(kies)kies.onchange=()=>{if(kies.value==='')return;d.klant={tav:'',adres:'',plaats:'',btw:'',...known[kies.value]};viewOpdracht()};
+  $('#betreft').oninput=e=>{d.betreft=e.target.value};
+  $('#omsch').oninput=e=>{d.omschrijving=e.target.value};
+  $('#wanneer').oninput=e=>{d.details[0].v=e.target.value};
+  $('#waar').oninput=e=>{d.details[1].v=e.target.value};
+  $('#vw').oninput=e=>{d.voorwaarden=e.target.value};
+  const upd=()=>{r.prijs=$('#prijs').value;r.btw=+$('#btwp').value;r.omschr='Overeengekomen bedrag';drawTots()};
+  $('#prijs').oninput=upd;$('#btwp').onchange=upd;
+  $('#save').onclick=saveDraft;drawTots();
+}
 function drawDet(){
   const d=S.draft,box=$('#det');
   box.innerHTML=d.details.map((x,i)=>`<div class="row" style="margin-bottom:6px" data-i="${i}"><input data-dk="k" placeholder="Onderdeel" value="${esc(x.k)}" style="flex:.8"><input data-dk="v" placeholder="Waarde" value="${esc(x.v)}"><button class="btn bad sm" data-dx="${i}" style="flex:0 0 auto">x</button></div>`).join('');
@@ -474,7 +520,7 @@ async function saveDraft(){
   if(d.type!=='opdracht'&&!d.regels.some(r=>(r.omschr||'').trim()))return toast('Vul minimaal één regel in');
   if(S.invoices.some(i=>i.nummer===d.nummer&&i.id!==d.id)&&!confirm('Dit factuurnummer bestaat al. Toch opslaan?'))return;
   if(d.verlegd&&!d.klant.btw.trim())return toast('BTW verlegd: vul het BTW-nummer van de klant in');
-  d.regels=d.regels.filter(r=>(r.omschr||'').trim()).map(r=>({omschr:r.omschr.trim(),aantal:+r.aantal||0,prijs:+r.prijs||0,btw:d.verlegd?0:+r.btw}));
+  d.regels=d.regels.filter(r=>(r.omschr||'').trim()&&(d.type!=='opdracht'||+r.prijs)).map(r=>({omschr:r.omschr.trim(),aantal:+r.aantal||0,prijs:+r.prijs||0,btw:d.verlegd?0:+r.btw}));
   d.co={...S.settings.co[d.brand],logo:''}; // snapshot gegevens (logo wordt uit instellingen gelezen)
   d.termijn=+d.termijn||0;
   if(d.type==='opdracht')d.details=(d.details||[]).filter(x=>x.k.trim()||x.v.trim());
@@ -483,7 +529,7 @@ async function saveDraft(){
   const used=parseInt(d.nummer.split('-')[1],10),yr=parseInt(d.nummer.split('-')[0],10);
   if(d.type!=='opdracht'&&used&&yr===new Date().getFullYear()&&(S.settings.volgendJaar!==yr||used>=S.settings.volgend)){S.settings.volgend=used+1;S.settings.volgendJaar=yr;await saveSettings()}
   await loadAll();S.viewing=d.id;
-  toast('Factuur opgeslagen');
+  toast(d.type==='opdracht'?'Opdrachtbevestiging opgeslagen':'Factuur opgeslagen');
   history.replaceState({v:'history'},'');go('invoice',{viewing:d.id});
 }
 
