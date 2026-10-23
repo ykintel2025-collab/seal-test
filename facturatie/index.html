@@ -33,6 +33,9 @@ textarea{min-height:64px;resize:vertical}
 .brand .ph{width:40px;height:40px;border-radius:10px;background:var(--ink);color:var(--gold);display:grid;place-items:center;font-weight:700}
 .brand b{display:block}.brand small{color:var(--mut)}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}.seg button{border:2px solid var(--line);background:#fff;border-radius:14px;padding:16px 8px;font:inherit;font-weight:700;font-size:16px;cursor:pointer}.seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.step{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);margin:0 0 8px}
+.brand img{height:52px!important;max-width:110px!important}.formlogo{height:56px;max-width:200px;object-fit:contain;display:block;margin:0 0 10px}
 .chip{border:1px solid var(--line);background:#fff;border-radius:99px;padding:8px 12px;font:inherit;font-size:14px;cursor:pointer}
 .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
 .line{border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px;background:#fcfbf8}
@@ -374,8 +377,8 @@ function viewHome(){
   const open=S.invoices.filter(i=>i.type!=='opdracht'&&!i.betaald);
   const openSum=open.reduce((s,i)=>s+calc(i.regels.map(r=>({...r})),i.verlegd).totaal,0);
   app.innerHTML=`
-  <div class="card"><div class="chips"><button class="chip ${S.docType!=='opdracht'?'on':''}" data-dt="factuur">Factuur</button><button class="chip ${S.docType==='opdracht'?'on':''}" data-dt="opdracht">Opdrachtbevestiging</button></div></div>
-  <div class="card"><h2>${S.docType==='opdracht'?'Nieuwe opdrachtbevestiging voor':'Nieuwe factuur voor'}</h2><div class="brands">
+  <div class="card"><p class="step">1. Wat wil je maken?</p><div class="seg"><button class="${S.docType!=='opdracht'?'on':''}" data-dt="factuur">Factuur</button><button class="${S.docType==='opdracht'?'on':''}" data-dt="opdracht">Opdracht-<br>bevestiging</button></div></div>
+  <div class="card"><p class="step">2. Kies de handelsnaam</p><h2>${S.docType==='opdracht'?'Opdrachtbevestiging voor':'Factuur voor'}</h2><div class="brands">
     ${Object.entries(BRANDS).map(([id,b])=>{const l=S.settings.co[id].logo;return `<button class="brand" data-b="${id}">
       ${l?`<img src="${l}" alt="">`:`<div class="ph">S</div>`}<span><b>${b.naam}</b><small>${b.sub}</small></span></button>`}).join('')}
   </div></div>
@@ -404,7 +407,7 @@ function viewForm(){
   const OP=d.type==='opdracht';setTitle((OP?'Opdracht ':'Factuur ')+b.naam.replace('Seal ',''),true);
   const known=[...new Map(S.invoices.map(i=>[i.klant.naam.toLowerCase(),i.klant])).values()].filter(k=>k.naam);
   app.innerHTML=`
-  <div class="card"><h2>Handelsnaam</h2><div class="chips">
+  <div class="card"><h2>Handelsnaam</h2>${S.settings.co[d.brand].logo?`<img class="formlogo" src="${S.settings.co[d.brand].logo}" alt="">`:''}<div class="chips">
     ${Object.entries(BRANDS).map(([id,x])=>`<button class="chip ${id===d.brand?'on':''}" data-b="${id}">${x.naam}</button>`).join('')}</div>
     <div class="row"><div><label>${OP?'Kenmerk':'Factuurnummer'}</label><input id="nummer" value="${esc(d.nummer)}"></div>
     <div><label>Datum</label><input id="datum" type="date" value="${d.datum}"></div></div>
